@@ -1,0 +1,54 @@
+/* Base styles for dark mode and mobile optimization */
+body {
+    -webkit-tap-highlight-color: transparent;
+    background-color: #0B0E14;
+    color: #D1D5DB;
+}
+
+/* Glassmorphism utilities */
+.glass-header {
+    background: rgba(21, 25, 36, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/* Safe area for mobile bottoms (iOS) */
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Hide scrollbar but keep functionality */
+::-webkit-scrollbar {
+    display: none;
+}
+
+/* Tab logic */
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+}
+.tab-content.active {
+    display: block;
+}
+
+/* Bottom Nav active state */
+.nav-item.active {
+    color: #2962FF; /* brand-primary */
+}
+.nav-item.active svg {
+    stroke: #2962FF;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Signal colors */
+.text-signal-buy { color: #00C853; }
+.text-signal-sell { color: #FF3D00; }
+.text-signal-hold { color: #FFC107; }
+
+.bg-signal-buy { background-color: rgba(0, 200, 83, 0.2); color: #00C853; border: 1px solid rgba(0, 200, 83, 0.4); }
+.bg-signal-sell { background-color: rgba(255, 61, 0, 0.2); color: #FF3D00; border: 1px solid rgba(255, 61, 0, 0.4); }
+.bg-signal-hold { background-color: rgba(255, 193, 7, 0.2); color: #FFC107; border: 1px solid rgba(255, 193, 7, 0.4); }

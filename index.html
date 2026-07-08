@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VN Stock Advisor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            bg: '#0B0E14',
+                            card: '#151924',
+                            border: '#2A2E39',
+                            text: '#D1D5DB'
+                        },
+                        brand: {
+                            up: '#00C853',
+                            down: '#FF3D00',
+                            ref: '#FFC107',
+                            primary: '#2962FF'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-dark-bg text-dark-text font-sans antialiased pb-20">
+
+    <!-- Header -->
+    <header class="fixed top-0 w-full bg-dark-card border-b border-dark-border z-50 px-4 py-3 glass-header">
+        <div class="flex justify-between items-center">
+            <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                Stock Advisor
+            </h1>
+            <div id="market-status" class="text-xs font-semibold px-2 py-1 rounded bg-green-500/20 text-green-400">
+                Trực tuyến
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="mt-16 px-4" id="main-content">
+        
+        <!-- Tab 1: Tổng quan -->
+        <section id="tab-overview" class="tab-content active space-y-4">
+            <div class="p-4 bg-dark-card rounded-2xl border border-dark-border shadow-lg mt-4 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
+                <h2 class="text-sm text-gray-400 mb-1">VN-INDEX</h2>
+                <div class="flex items-end gap-3 mb-4">
+                    <span id="vnindex-value" class="text-3xl font-bold text-white">---</span>
+                    <span id="vnindex-change" class="text-sm font-semibold mb-1">---</span>
+                </div>
+                <!-- Mini Chart Canvas -->
+                <div class="h-24 w-full">
+                    <canvas id="vnindexChart"></canvas>
+                </div>
+            </div>
+
+            <div class="flex gap-2 mb-2">
+                <button id="btn-scan" class="flex-1 bg-brand-primary text-white py-3 rounded-xl font-semibold shadow-[0_0_15px_rgba(41,98,255,0.4)] active:scale-95 transition-transform">
+                    <i class="fas fa-search mr-2"></i> Chạy Quét Chuyên Gia
+                </button>
+            </div>
+            <div id="scan-progress" class="hidden">
+                <div class="text-xs text-gray-400 mb-1 flex justify-between">
+                    <span id="scan-status-text">Đang quét thanh khoản...</span>
+                    <span id="scan-percent">0%</span>
+                </div>
+                <div class="w-full bg-dark-border rounded-full h-1.5">
+                    <div id="scan-progress-bar" class="bg-brand-primary h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 2: Lọc cổ phiếu (Scanner) -->
+        <section id="tab-scanner" class="tab-content hidden space-y-4 pt-4">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-lg font-bold text-white">Top Khuyến Nghị</h2>
+                <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2 py-1 text-sm outline-none text-white">
+                    <option value="ALL">Tất cả</option>
+                    <option value="BUY">Mua/Mua Mạnh</option>
+                    <option value="SELL">Bán/Bán Mạnh</option>
+                </select>
+            </div>
+            <div id="scanner-results" class="space-y-3">
+                <div class="text-center text-gray-500 py-10">
+                    Hãy bấm "Chạy Quét Chuyên Gia" ở tab Tổng quan
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 3: Biểu đồ & Phân tích chi tiết -->
+        <section id="tab-chart" class="tab-content hidden pt-4 space-y-4">
+            <div class="flex gap-2">
+                <input type="text" id="search-symbol" placeholder="Nhập mã CP (VD: FPT)" class="flex-1 bg-dark-card border border-dark-border rounded-xl px-4 py-3 text-white uppercase outline-none focus:border-brand-primary transition-colors">
+                <button id="btn-analyze" class="bg-brand-primary border border-brand-primary text-white px-5 rounded-xl font-semibold shadow-lg active:scale-95 transition-transform">
+                    Xem
+                </button>
+            </div>
+            
+            <div id="detail-card" class="hidden bg-dark-card rounded-2xl border border-dark-border p-4 shadow-lg">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h2 id="detail-symbol" class="text-2xl font-bold text-white uppercase">---</h2>
+                        <div id="detail-price" class="text-xl font-semibold mt-1">---</div>
+                    </div>
+                    <div id="detail-signal-badge" class="px-3 py-1 rounded-full text-xs font-bold text-white">
+                        ---
+                    </div>
+                </div>
+
+                <!-- Technical Chart -->
+                <div class="h-64 w-full relative mb-4">
+                    <canvas id="mainChart"></canvas>
+                </div>
+
+                <!-- Indicators Summary -->
+                <h3 class="text-sm font-semibold text-gray-400 mb-2 border-b border-dark-border pb-2">Chỉ báo kỹ thuật</h3>
+                <div class="grid grid-cols-2 gap-4 text-sm" id="detail-indicators">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 4: Danh mục -->
+        <section id="tab-portfolio" class="tab-content hidden pt-4 space-y-4">
+            <div class="bg-gradient-to-br from-dark-card to-[#1a1f2e] rounded-2xl border border-dark-border p-5 shadow-lg">
+                <h2 class="text-sm text-gray-400 mb-1">Tổng Tài Sản</h2>
+                <div class="text-3xl font-bold text-white mb-2" id="portfolio-total">0 ₫</div>
+                <div class="flex gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-500">Lãi/Lỗ:</span>
+                        <span id="portfolio-pl" class="font-semibold text-gray-300">0 ₫ (0%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mt-6 mb-2">
+                <h3 class="font-bold text-white">Cổ phiếu đang giữ</h3>
+                <button id="btn-add-stock" class="text-brand-primary text-sm font-semibold p-2 bg-blue-500/10 rounded-lg">+ Thêm mã</button>
+            </div>
+
+            <div id="portfolio-list" class="space-y-3">
+                <!-- Rendered via JS -->
+                <div class="text-center text-gray-500 py-10">Chưa có mã nào trong danh mục</div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="fixed bottom-0 w-full bg-dark-card/90 backdrop-blur-md border-t border-dark-border pb-safe z-50">
+        <div class="flex justify-around items-center h-16">
+            <button class="nav-item active flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-overview">
+                <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span class="text-[10px] font-medium">Tổng quan</span>
+            </button>
+            <button class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-scanner">
+                <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <span class="text-[10px] font-medium">Bộ lọc</span>
+            </button>
+            <button class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-chart">
+                <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                <span class="text-[10px] font-medium">Biểu đồ</span>
+            </button>
+            <button class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-portfolio">
+                <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                <span class="text-[10px] font-medium">Danh mục</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Modal Thêm Danh Mục -->
+    <div id="modal-portfolio" class="hidden fixed inset-0 bg-black/60 z-[60] flex items-center justify-center px-4 backdrop-blur-sm transition-opacity">
+        <div class="bg-dark-card w-full max-w-sm rounded-2xl border border-dark-border p-5 shadow-2xl scale-95 transition-transform">
+            <h3 class="text-lg font-bold text-white mb-4">Thêm Cổ Phiếu</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Mã cổ phiếu</label>
+                    <input type="text" id="port-symbol" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white uppercase outline-none focus:border-brand-primary" placeholder="VD: FPT">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Giá mua (VNĐ)</label>
+                    <input type="number" id="port-price" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white outline-none focus:border-brand-primary" placeholder="VD: 85000">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Số lượng</label>
+                    <input type="number" id="port-vol" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white outline-none focus:border-brand-primary" placeholder="VD: 1000">
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button id="btn-cancel-port" class="flex-1 py-2 rounded-lg font-semibold text-gray-400 bg-dark-border hover:bg-gray-700">Hủy</button>
+                <button id="btn-save-port" class="flex-1 py-2 rounded-lg font-semibold text-white bg-brand-primary hover:bg-blue-600">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/data.js"></script>
+    <script src="js/ta.js"></script>
+    <script src="js/portfolio.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
