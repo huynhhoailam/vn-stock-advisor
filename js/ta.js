@@ -87,10 +87,56 @@ function getVolumeTrend(data, period = 20) {
     return (currentVol / avgVol) * 100; // Tỷ lệ % so với trung bình
 }
 
+// --- BỘ PHÁT HIỆN TÍN HIỆU CHIẾN LƯỢC ĐẶC BIỆT ---
+function detectStrategies(candles, currentPrice, sma20, sma50, rsi, macd, volPercent) {
+    const tags = [];
+    if (candles.length < 2) return tags;
+
+    const lastCandle = candles[candles.length - 1];
+    const prevCandle = candles[candles.length - 2];
+    const isBullishCandle = lastCandle.close > lastCandle.open;
+    const priceChangePct = prevCandle ? ((lastCandle.close - prevCandle.close) / prevCandle.close) * 100 : 0;
+
+    // 1. Tín hiệu: 🎯 BẮT ĐÁY (Bottom Reversal / Oversold Bounce)
+    // Điều kiện: RSI quá bán (< 40) hoặc đảo chiều nến xanh từ vùng đáy
+    if (rsi && rsi < 42 && isBullishCandle) {
+        tags.push({
+            type: "BOTTOM",
+            label: "🎯 BẮT ĐÁY",
+            badgeClass: "bg-purple-500/20 text-purple-400 border border-purple-500/40",
+            desc: `RSI thấp (${rsi.toFixed(1)}) + Nến đảo chiều tăng từ đáy`
+        });
+    }
+
+    // 2. Tín hiệu: 🚀 DÒNG TIỀN ĐỘT BIẾN (Volume Surge & Momentum Breakout)
+    // Điều kiện: Vol > 135% so với trung bình 20 phiên + Giá tăng mạnh (> 1.2%)
+    if (volPercent >= 135 && priceChangePct > 1.2) {
+        tags.push({
+            type: "MONEY_FLOW",
+            label: "🚀 NỔ DÒNG TIỀN",
+            badgeClass: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
+            desc: `Volume nổ ${volPercent.toFixed(0)}% TB20 + Tăng giá ${priceChangePct.toFixed(1)}%`
+        });
+    }
+
+    // 3. Tín hiệu: 👑 CỔ XU HƯỚNG MẠNH (Leader / Strong Uptrend)
+    // Điều kiện: Price > MA20 > MA50 + MACD > Signal + RSI > 52
+    if (sma20 && sma50 && currentPrice > sma20 && sma20 > sma50 && macd && macd.macd > macd.signal && rsi > 52) {
+        tags.push({
+            type: "LEADER",
+            label: "👑 CỔ MẠNH DẪN DẮT",
+            badgeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/40",
+            desc: "Uptrend hoàn hảo: Giá > MA20 > MA50 & MACD tăng mở rộng"
+        });
+    }
+
+    return tags;
+}
+
 // --- THUẬT TOÁN CHẤM ĐIỂM CHUYÊN GIA ---
-// Trả về điểm 0-100 và Nhận định (MUA/BÁN/GIỮ)
+// Trả về điểm 0-100, Tín hiệu và các Chiến lược áp dụng
 function evaluateStock(symbol, candles) {
-    if (!candles || candles.length < 50) return null;
+    if (!candles || candles.length < 20) return null;
 
     const currentPrice = candles[candles.length - 1].close;
     
@@ -100,6 +146,9 @@ function evaluateStock(symbol, candles) {
     const rsi = calculateRSI(candles, 14);
     const macd = calculateMACD(candles);
     const volPercent = getVolumeTrend(candles, 20);
+
+    // Phát hiện chiến lược đặc biệt
+    const strategies = detectStrategies(candles, currentPrice, sma20, sma50, rsi, macd, volPercent);
 
     let score = 0;
     let reasons = [];
@@ -132,6 +181,21 @@ function evaluateStock(symbol, candles) {
         reasons.push("Thanh khoản yếu");
     }
 
+    // Cộng điểm thưởng nếu thỏa mãn chiến lược dòng tiền hoặc dẫn dắt
+    if (strategies.some(s => s.type === "MONEY_FLOW")) {
+        score += 15;
+        reasons.unshift("🚀 Dòng tiền cá mập/tổ chức nổ khối lượng gia nhập");
+    }
+    if (strategies.some(s => s.type === "LEADER")) {
+        score += 15;
+        reasons.unshift("👑 Cổ phiếu nằm trong kênh Up-trend dẫn dắt");
+    }
+    if (strategies.some(s => s.type === "BOTTOM")) {
+        score += 10;
+        reasons.unshift("🎯 Tín hiệu nảy từ vùng quá bán (Bắt đáy)");
+    }
+    score = Math.min(100, score);
+
     // Determine Signal
     let signal = "HOLD";
     let signalText = "GIỮ";
@@ -155,6 +219,7 @@ function evaluateStock(symbol, candles) {
         signalText,
         signalClass,
         reasons,
+        strategies,
         indicators: {
             sma20, sma50, rsi, macd, volPercent
         }

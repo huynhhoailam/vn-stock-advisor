@@ -84,13 +84,20 @@
 
         <!-- Tab 2: Lọc cổ phiếu (Scanner) -->
         <section id="tab-scanner" class="tab-content hidden space-y-4 pt-4">
-            <div class="flex justify-between items-center mb-2">
+            <div class="flex justify-between items-center mb-3">
                 <h2 class="text-lg font-bold text-white">Top Khuyến Nghị</h2>
                 <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2 py-1 text-sm outline-none text-white">
                     <option value="ALL">Tất cả</option>
                     <option value="BUY">Mua/Mua Mạnh</option>
                     <option value="SELL">Bán/Bán Mạnh</option>
                 </select>
+            </div>
+            <!-- Bộ lọc Tín hiệu Chiến lược -->
+            <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                <button data-strategy="ALL" class="strategy-chip active-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-dark-border bg-dark-card text-gray-300 whitespace-nowrap">⚡ Tất cả</button>
+                <button data-strategy="MONEY_FLOW" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 whitespace-nowrap">🚀 Nổ Dòng Tiền</button>
+                <button data-strategy="LEADER" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-400 whitespace-nowrap">👑 Cổ Mạnh</button>
+                <button data-strategy="BOTTOM" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-purple-500/40 bg-purple-500/10 text-purple-400 whitespace-nowrap">🎯 Bắt Đáy</button>
             </div>
             <div id="scanner-results" class="space-y-3">
                 <div class="text-center text-gray-500 py-10">
@@ -118,6 +125,8 @@
                         ---
                     </div>
                 </div>
+                <!-- Strategy Tags Row -->
+                <div id="detail-strategy-tags" class="flex flex-wrap gap-2 mb-3"></div>
 
                 <!-- Technical Chart -->
                 <div class="h-64 w-full relative mb-4">

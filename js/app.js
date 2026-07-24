@@ -36,7 +36,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 2. Load VN-INDEX on start
+    // 2. Load dynamic HOSE symbols & VN-INDEX on start
+    fetchHoseSymbols();
     await loadVNIndex();
 
     // 3. Setup Scanner Button
@@ -49,6 +50,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('filter-signal').addEventListener('change', renderScannerResults);
+
+    // 5. Setup Strategy Chip Filters
+    let activeStrategy = 'ALL';
+    document.querySelectorAll('.strategy-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.strategy-chip').forEach(c => c.classList.remove('active-chip', 'ring-2', 'ring-white/30'));
+            chip.classList.add('active-chip', 'ring-2', 'ring-white/30');
+            activeStrategy = chip.dataset.strategy;
+            renderScannerResults(activeStrategy);
+        });
+    });
+
+    // Store activeStrategy globally for use in renderScannerResults
+    window._activeStrategy = 'ALL';
+    document.querySelectorAll('.strategy-chip').forEach(chip => {
+        chip.addEventListener('click', () => { window._activeStrategy = chip.dataset.strategy; });
+    });
 });
 
 // Load VN-INDEX
@@ -80,34 +98,52 @@ async function runScanner() {
     const progressDiv = document.getElementById('scan-progress');
     const progressBar = document.getElementById('scan-progress-bar');
     const percentEl = document.getElementById('scan-percent');
-    
+    const statusTextEl = document.getElementById('scan-status-text');
+
     btn.classList.add('hidden');
     progressDiv.classList.remove('hidden');
-    
-    scannedResults = []; // reset
-    const total = HOSE_SYMBOLS.length;
-    let completed = 0;
 
-    // Use small batches to avoid blocking UI completely
-    const batchSize = 5;
+    scannedResults = []; // reset
+
+    // 1. Tải toàn bộ danh sách mã HOSE từ API
+    statusTextEl.textContent = 'Đang tải danh sách tất cả mã HOSE...';
+    const allHoseSymbols = await fetchHoseSymbols();
+
+    // 2. Thuật toán lọc Top 60 mã HOSE có THANH KHOẢN CAO NHẤT (Giá trị giao dịch)
+    const topLiquiditySymbols = await getTopLiquidityHoseSymbols(allHoseSymbols, 60, (pct, msg) => {
+        progressBar.style.width = `${pct}%`;
+        percentEl.textContent = `${pct}%`;
+        statusTextEl.textContent = msg;
+    });
+
+    // 3. Phân tích kỹ thuật chuyên sâu (120 ngày) cho Top mã thanh khoản
+    const total = topLiquiditySymbols.length;
+    let completed = 0;
+    const batchSize = 20; // 20 mã song song/đợt -> Chỉ 3 đợt lặp là xong toàn bộ
+
     for (let i = 0; i < total; i += batchSize) {
-        const batch = HOSE_SYMBOLS.slice(i, i + batchSize);
+        const batch = topLiquiditySymbols.slice(i, i + batchSize);
         const promises = batch.map(async (symbol) => {
-            const candles = await fetchStockHistory(symbol, 60); // 60 days is enough for TA
-            if (candles) {
-                const result = evaluateStock(symbol, candles);
-                if (result) scannedResults.push(result);
+            try {
+                const candles = await fetchStockHistory(symbol, 120);
+                if (candles && candles.length >= 20) {
+                    const result = evaluateStock(symbol, candles);
+                    if (result) scannedResults.push(result);
+                }
+            } catch (err) {
+                console.warn(`Lỗi khi phân tích ${symbol}:`, err);
             }
             completed++;
-            const pct = Math.round((completed / total) * 100);
+            const pct = 40 + Math.round((completed / total) * 60); // 40% -> 100%
             progressBar.style.width = `${pct}%`;
             percentEl.textContent = `${pct}%`;
+            statusTextEl.textContent = `Bước 2/2: Đang phân tích kỹ thuật... (${completed}/${total})`;
         });
-        
+
         await Promise.all(promises);
     }
 
-    // Sort by Score (Desc) and then by Volume Trend
+    // Sắp xếp kết quả theo Điểm Chuyên Gia (Giảm dần)
     scannedResults.sort((a, b) => b.score - a.score || b.indicators.volPercent - a.indicators.volPercent);
 
     progressDiv.classList.add('hidden');
@@ -115,7 +151,7 @@ async function runScanner() {
     btn.innerHTML = '<i class="fas fa-check mr-2"></i> Đã Quét Xong';
     setTimeout(() => { btn.innerHTML = '<i class="fas fa-search mr-2"></i> Chạy Quét Lại'; }, 3000);
 
-    // Switch to Scanner Tab automatically
+    // Chuyển sang Tab Bộ lọc để hiển thị kết quả
     document.querySelector('[data-target="tab-scanner"]').click();
     renderScannerResults();
 }
@@ -123,6 +159,7 @@ async function runScanner() {
 function renderScannerResults() {
     const container = document.getElementById('scanner-results');
     const filter = document.getElementById('filter-signal').value;
+    const strategyFilter = window._activeStrategy || 'ALL';
 
     if (scannedResults.length === 0) {
         container.innerHTML = '<div class="text-center text-gray-500 py-10">Không có dữ liệu. Hãy chạy quét chuyên gia.</div>';
@@ -130,30 +167,45 @@ function renderScannerResults() {
     }
 
     let filtered = scannedResults;
-    if (filter === 'BUY') filtered = scannedResults.filter(r => r.signal === 'BUY' || r.signal === 'STRONG_BUY');
-    if (filter === 'SELL') filtered = scannedResults.filter(r => r.signal === 'SELL' || r.signal === 'STRONG_SELL');
+    if (filter === 'BUY') filtered = filtered.filter(r => r.signal === 'BUY' || r.signal === 'STRONG_BUY');
+    if (filter === 'SELL') filtered = filtered.filter(r => r.signal === 'SELL' || r.signal === 'STRONG_SELL');
+    if (strategyFilter !== 'ALL') {
+        filtered = filtered.filter(r => r.strategies && r.strategies.some(s => s.type === strategyFilter));
+    }
 
-    // Only take top 30 to display to keep DOM light
     filtered = filtered.slice(0, 30);
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-center py-10">
+            <div class="text-3xl mb-2">⚠️</div>
+            <div class="text-gray-400 text-sm">Không tìm thấy mã nào phù hợp tín hiệu này.<br>Hãy thử quét lại hoặc chọn bộ lọc khác.</div>
+        </div>`;
+        return;
+    }
 
     let html = '';
     filtered.forEach((res, index) => {
-        const up = res.indicators.macd && res.indicators.macd.macd > res.indicators.macd.signal;
+        const strategyBadges = (res.strategies || []).map(s =>
+            `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${s.badgeClass}">${s.label}</span>`
+        ).join('');
         html += `
-            <div class="bg-dark-card border border-dark-border rounded-xl p-4 flex items-center justify-between" onclick="analyzeSymbol('${res.symbol}')">
-                <div class="flex items-center gap-3">
-                    <div class="text-xs font-bold text-gray-500 w-4">${index + 1}</div>
-                    <div>
-                        <div class="font-bold text-white text-lg">${res.symbol}</div>
-                        <div class="text-xs text-gray-400 mt-0.5">Điểm: <span class="font-bold ${res.score >= 60 ? 'text-brand-up' : (res.score <= 40 ? 'text-brand-down' : 'text-brand-ref')}">${res.score}/100</span></div>
+            <div class="bg-dark-card border border-dark-border rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer" onclick="analyzeSymbol('${res.symbol}')">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="text-xs font-bold text-gray-500 w-4">${index + 1}</div>
+                        <div>
+                            <div class="font-bold text-white text-lg">${res.symbol}</div>
+                            <div class="text-xs text-gray-400 mt-0.5">Điểm: <span class="font-bold ${res.score >= 60 ? 'text-brand-up' : (res.score <= 40 ? 'text-brand-down' : 'text-brand-ref')}">${res.score}/100</span></div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-semibold text-white">${fmtPrice(res.price)}</div>
+                        <div class="text-[10px] px-2 py-1 rounded mt-1 font-bold inline-block ${res.signalClass}">
+                            ${res.signalText}
+                        </div>
                     </div>
                 </div>
-                <div class="text-right">
-                    <div class="font-semibold text-white">${fmtPrice(res.price)}</div>
-                    <div class="text-[10px] px-2 py-1 rounded mt-1 font-bold inline-block ${res.signalClass}">
-                        ${res.signalText}
-                    </div>
-                </div>
+                ${strategyBadges ? `<div class="flex flex-wrap gap-1.5 mt-2">${strategyBadges}</div>` : ''}
             </div>
         `;
     });
@@ -189,6 +241,16 @@ async function analyzeSymbol(symbol) {
     const badge = document.getElementById('detail-signal-badge');
     badge.textContent = result.signalText + ` (${result.score}Đ)`;
     badge.className = `px-3 py-1 rounded-full text-xs font-bold ${result.signalClass}`;
+
+    // Render Strategy Tags
+    const tagsEl = document.getElementById('detail-strategy-tags');
+    if (result.strategies && result.strategies.length > 0) {
+        tagsEl.innerHTML = result.strategies.map(s =>
+            `<span class="px-2 py-1 rounded-full text-xs font-semibold ${s.badgeClass}" title="${s.desc}">${s.label}</span>`
+        ).join('');
+    } else {
+        tagsEl.innerHTML = '';
+    }
 
     // Fill Indicators
     const indEl = document.getElementById('detail-indicators');
