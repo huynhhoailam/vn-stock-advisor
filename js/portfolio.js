@@ -1,5 +1,9 @@
 // --- QUẢN LÝ DANH MỤC (PORTFOLIO) ---
 
+// Helpers định dạng số (chỉ dùng trong portfolio)
+const formatCurrency = (value) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+const formatNumber = (value) => new Intl.NumberFormat('vi-VN').format(value);
+
 let portfolio = JSON.parse(localStorage.getItem('vnStockPortfolio')) || [];
 
 function savePortfolio() {

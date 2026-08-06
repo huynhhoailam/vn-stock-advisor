@@ -36,8 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 2. Load dynamic HOSE symbols & VN-INDEX on start
-    fetchHoseSymbols();
+    // 2. Load VN-INDEX on start (dùng DEFAULT_HOSE_SYMBOLS làm nền cho scanner)
     await loadVNIndex();
 
     // 3. Setup Scanner Button
@@ -52,20 +51,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('filter-signal').addEventListener('change', renderScannerResults);
 
     // 5. Setup Strategy Chip Filters
-    let activeStrategy = 'ALL';
+    window._activeStrategy = 'ALL';
     document.querySelectorAll('.strategy-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             document.querySelectorAll('.strategy-chip').forEach(c => c.classList.remove('active-chip', 'ring-2', 'ring-white/30'));
             chip.classList.add('active-chip', 'ring-2', 'ring-white/30');
-            activeStrategy = chip.dataset.strategy;
-            renderScannerResults(activeStrategy);
+            window._activeStrategy = chip.dataset.strategy;
+            renderScannerResults();
         });
-    });
-
-    // Store activeStrategy globally for use in renderScannerResults
-    window._activeStrategy = 'ALL';
-    document.querySelectorAll('.strategy-chip').forEach(chip => {
-        chip.addEventListener('click', () => { window._activeStrategy = chip.dataset.strategy; });
     });
 });
 
@@ -105,29 +98,26 @@ async function runScanner() {
 
     scannedResults = []; // reset
 
-    // 1. Tải toàn bộ danh sách mã HOSE từ API
-    statusTextEl.textContent = 'Đang tải danh sách tất cả mã HOSE...';
-    const allHoseSymbols = await fetchHoseSymbols();
-
-    // 2. Thuật toán lọc Top 60 mã HOSE có THANH KHOẢN CAO NHẤT (Giá trị giao dịch)
-    const topLiquiditySymbols = await getTopLiquidityHoseSymbols(allHoseSymbols, 60, (pct, msg) => {
+    // 2. Lọc Top 60 mã HOSE thanh khoản cao nhất qua VPS API & lấy realtime metadata
+    const { topSymbols, vpsMap } = await getTopLiquidityHoseSymbols(60, (pct, msg) => {
         progressBar.style.width = `${pct}%`;
         percentEl.textContent = `${pct}%`;
         statusTextEl.textContent = msg;
     });
 
     // 3. Phân tích kỹ thuật chuyên sâu (120 ngày) cho Top mã thanh khoản
-    const total = topLiquiditySymbols.length;
+    const total = topSymbols.length;
     let completed = 0;
     const batchSize = 20; // 20 mã song song/đợt -> Chỉ 3 đợt lặp là xong toàn bộ
 
     for (let i = 0; i < total; i += batchSize) {
-        const batch = topLiquiditySymbols.slice(i, i + batchSize);
+        const batch = topSymbols.slice(i, i + batchSize);
         const promises = batch.map(async (symbol) => {
             try {
                 const candles = await fetchStockHistory(symbol, 120);
                 if (candles && candles.length >= 20) {
-                    const result = evaluateStock(symbol, candles);
+                    const vpsInfo = vpsMap[symbol] || null;
+                    const result = evaluateStock(symbol, candles, vpsInfo);
                     if (result) scannedResults.push(result);
                 }
             } catch (err) {

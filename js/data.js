@@ -1,97 +1,116 @@
-// Danh sách các mã phổ biến / VN100 trên HOSE (Dự phòng/Fallback)
-const DEFAULT_HOSE_SYMBOLS = [
-    "VCB","FPT","HPG","HDB","CTG","TCB","VPB","MBB","ACB","MWG",
-    "VNM","VIC","VHM","VRE","STB","SSI","VND","HCM","VCI","SHB",
-    "LPB","TPB","MSB","EIB","OCB","VIB","MSN","PNJ","SAB","GVR",
-    "DGC","KDH","REE","GAS","PLX","POW","VJC","BCM","KBC","NLG",
-    "NVL","DIG","DXG","PDR","CEO","VCG","KOS","HDG","CII","DGW",
-    "VHC","HVN","DPM","DCM","DBC","BSR","NT2","GEG","VPI","SSB",
-    "HAH","ANV","IDI","PAN","ASM","VSC","PVT","GMD","VCS","PC1",
-    "DPG","GIL","SZC","IDC","TIP","PHR","NTL","SIP","BWE","TDM",
-    "VSH","IJC","CTR","TV2","LCG","FCN","HHV","C4G","VIX","AGR",
-    "ORS","BSI","CTS","FTS","BAF","HAG","HSG","ITA","SBT","NKG",
-    "TLH","PET","FRT","DHA","TCM","SMC","TNH"
+// Danh sách toàn bộ các mã cổ phiếu đang giao dịch trên sàn HOSE
+const ALL_HOSE_SYMBOLS = [
+    "AAA","AAM","AAN","AAT","ABS","ACB","ACC","ACG","ACL","ADG","ADP","ADS","AFX","AGG","ANT","ANV","APH","ASP","AST",
+    "BCM","BIC","BID","BKG","BMP","BSI","BTT","BVB","CCL","CTG","CII","C4G","CEO","CTR","CTS","DBC","DBD","DC4","DGC",
+    "DGW","DHA","DHG","DHM","DMC","DPM","DQC","DTT","DVP","DXG","DXS","DXV","EIB","ELC","EVE","EVF","EVG","FCM","FCN",
+    "FDC","FIR","FIT","FMC","FPT","FRT","FTS","GAS","GDT","GEE","GEG","GEL","GEX","GHC","GIL","GMD","GMH","GSP","GTA",
+    "GVR","HAH","HAS","HAG","HCD","HCM","HDB","HDG","HHP","HII","HPA","HPG","HPX","HSG","HVN","ICT","IDI","IJC","ILB",
+    "IMP","ITA","ITC","ITD","KBC","KDC","KDH","KHG","KHP","KLB","KMR","KOS","KSB","L10","LAF","LBM","LCG","LDG","LGC",
+    "LGL","LHG","LIX","LM8","LPB","LSS","MBB","MCM","MCP","MDG","MHC","MSB","MSN","MWG","MZG","NAB","NAF","NAV","NBB",
+    "NCT","NHA","NKG","NLG","NNC","NO1","NSC","NT2","NVL","OCB","ORS","PAN","PC1","PDG","PDR","PET","PGD","PGV","PHR",
+    "PLX","PNJ","POW","PPC","PTB","PVT","QCG","QNP","RAL","REE","RYG","S4A","SAB","SAV","SBV","SC5","SCR","SCS","SGR",
+    "SHB","SIP","SKG","SMC","SRF","SSB","SSC","SSI","STB","STK","SVD","SZC","SZL","TBC","TCB","TCL","TCO","TCT","TDC",
+    "TDG","TDH","THG","TIP","TIX","TMT","TNH","TPB","TRA","TSA","TVS","TYA","VCB","VCA","VCG","VCI","VCS","VHC","VHM",
+    "VIB","VIC","VIX","VJC","VND","VNG","VNL","VNM","VPB","VPI","VRE","VSC","VSH","VTB","YBM","YEG"
 ];
 
-// Danh sách mã cổ phiếu HOSE sẽ được tự động cập nhật động từ API
-let HOSE_SYMBOLS = [...DEFAULT_HOSE_SYMBOLS];
+// ============================================================
+// Lọc Top Thanh Khoản HOSE siêu tốc dùng VPS bgapidatafeed (CORS: *)
+// API: /getliststockdata/{sym1,sym2,...} → trả lot + avePrice + foreignNet
+// ============================================================
+async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
+    const VPS_API = 'https://bgapidatafeed.vps.com.vn/getliststockdata/';
 
-// Hàm lấy tự động danh sách mã trên sàn HOSE (Động 100% từ dchart-api mở CORS)
-async function fetchHoseSymbols() {
+    if (updateProgressFn) updateProgressFn(5, 'Bước 1/2: Đang tải bảng giá VPS cho toàn bộ sàn HOSE...');
+
+    const candidates = ALL_HOSE_SYMBOLS;
+    const liquidityList = [];
+    const vpsMap = {};
+
+    if (updateProgressFn) updateProgressFn(15, `Bước 1/2: Đang lọc thanh khoản realtime ${candidates.length} mã qua VPS...`);
+
+    // VPS chấp nhận ~60 mã/call → chia thành các batch gửi song song
+    const batchSize = 60;
+    const batches = [];
+    for (let i = 0; i < candidates.length; i += batchSize) {
+        batches.push(candidates.slice(i, i + batchSize));
+    }
+
     try {
-        // Gọi API search của dchart-api (Open CORS 100%) theo các chữ cái tiếng Anh
-        const letters = ['A','B','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','X','Y'];
-        const promises = letters.map(char => 
-            fetch(`https://dchart-api.vndirect.com.vn/dchart/search?query=${char}&limit=200`)
-                .then(r => r.ok ? r.json() : [])
-                .catch(() => [])
-        );
+        const batchResults = await Promise.all(batches.map(async (batch, idx) => {
+            const url = VPS_API + batch.join(',');
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`VPS batch ${idx} error ${res.status}`);
+                return await res.json();
+            } catch (e) {
+                console.warn(`⚠️ VPS batch ${idx} failed:`, e.message);
+                return [];
+            }
+        }));
 
-        const results = await Promise.all(promises);
-        const hoseSet = new Set();
+        // Gộp tất cả kết quả, tính giá trị giao dịch & lưu metadata realtime
+        batchResults.flat().forEach(item => {
+            const lot = parseFloat(item.lot) || 0;
+            const price = parseFloat(item.avePrice) || parseFloat(item.lastPrice) || 0;
+            const changePc = parseFloat(item.changePc) || 0;
+            const fBuy = parseFloat(item.fBVol) || 0;
+            const fSell = parseFloat(item.fSVolume) || 0;
+            const foreignNet = fBuy - fSell; // Khối ngoại mua/bán ròng
+            const sym = (item.sym || '').toUpperCase();
 
-        results.flat().forEach(item => {
-            if (item && item.exchange === "HOSE" && item.type === "CỔ PHIẾU" && item.symbol && item.symbol.length === 3) {
-                hoseSet.add(item.symbol.toUpperCase());
+            if (sym && price > 0) {
+                const tradingValue = lot * price * 1000;
+                vpsMap[sym] = { lot, price, changePc, foreignNet, tradingValue };
+                if (lot > 0) {
+                    liquidityList.push({ symbol: sym, tradingValue, lot, changePc });
+                }
             }
         });
 
-        if (hoseSet.size > 0) {
-            HOSE_SYMBOLS = Array.from(hoseSet);
-            console.log(`✅ Đã tải động thành công ${HOSE_SYMBOLS.length} mã cổ phiếu sàn HOSE từ dchart API.`);
-            return HOSE_SYMBOLS;
+        if (liquidityList.length > 0) {
+            liquidityList.sort((a, b) => b.tradingValue - a.tradingValue);
+            const topSymbols = liquidityList.slice(0, topLimit).map(i => i.symbol);
+            console.log(`✅ VPS API: Top ${topLimit} mã thanh khoản HOSE từ ${candidates.length} mã động → ${topSymbols.join(', ')}`);
+            if (updateProgressFn) updateProgressFn(40, `Bước 1/2: Hoàn tất! Lọc Top ${topSymbols.length} mã thanh khoản.`);
+            return { topSymbols, vpsMap };
         }
-    } catch (error) {
-        console.warn("⚠️ Lỗi khi tải danh sách động, dùng danh sách mặc định:", error);
+    } catch (e) {
+        console.warn('⚠️ VPS API thất bại, dùng dchart fallback:', e);
     }
 
-    HOSE_SYMBOLS = [...DEFAULT_HOSE_SYMBOLS];
-    return HOSE_SYMBOLS;
-}
-
-// Thuật toán lọc Top mã HOSE theo thanh khoản dùng dchart-api (Open CORS 100%)
-// Gộp danh sách động + fallback, batch 35 song song -> ~3 đợt là xong
-async function getTopLiquidityHoseSymbols(allSymbols, topLimit = 60, updateProgressFn) {
-    if (updateProgressFn) updateProgressFn(5, 'Bước 1/2: Đang tính thanh khoản Top HOSE...');
-
-    // Gộp danh sách động từ API + DEFAULT để đảm bảo không bỏ sót mã active
-    const candidates = Array.from(new Set([...DEFAULT_HOSE_SYMBOLS, ...allSymbols])).slice(0, 120);
-    const liquidityList = [];
-    const batchSize = 40; // 40 song song -> chỉ ~3 đợt lặp (~1-1.5s)
-
-    for (let i = 0; i < candidates.length; i += batchSize) {
-        const batch = candidates.slice(i, i + batchSize);
-        const promises = batch.map(async (symbol) => {
+    // ── Fallback: dchart-api từng batch 40 song song ──
+    if (updateProgressFn) updateProgressFn(10, 'Bước 1/2: Dùng dchart dự phòng...');
+    const fallbackBatchSize = 40;
+    for (let i = 0; i < candidates.length; i += fallbackBatchSize) {
+        const batch = candidates.slice(i, i + fallbackBatchSize);
+        await Promise.all(batch.map(async (symbol) => {
             try {
-                // Tải nhẹ 5 ngày để lấy volume & giá gần nhất (payload rất nhỏ)
                 const candles = await fetchStockHistory(symbol, 5);
                 if (candles && candles.length > 0) {
                     const last = candles[candles.length - 1];
-                    const tradingValue = last.volume * last.close; // Giá trị giao dịch tiền thực
-                    if (tradingValue > 0) liquidityList.push({ symbol, tradingValue });
+                    const tv = last.volume * last.close;
+                    if (tv > 0) liquidityList.push({ symbol, tradingValue: tv });
                 }
             } catch (err) {}
-        });
-        await Promise.all(promises);
-
+        }));
         if (updateProgressFn) {
-            const pct = Math.round(((i + batch.length) / candidates.length) * 40);
-            updateProgressFn(pct, `Bước 1/2: Lọc thanh khoản... (${Math.min(i + batch.length, candidates.length)}/${candidates.length})`);
+            const pct = Math.round(((i + fallbackBatchSize) / candidates.length) * 40);
+            updateProgressFn(pct, `Bước 1/2: Fallback dchart... (${Math.min(i + fallbackBatchSize, candidates.length)}/${candidates.length})`);
         }
     }
-
-    // Sắp xếp giảm dần theo Giá trị giao dịch -> lấy Top mã thanh khoản cao nhất
     liquidityList.sort((a, b) => b.tradingValue - a.tradingValue);
-    console.log(`✅ Top ${topLimit} mã thanh khoản:`, liquidityList.slice(0, topLimit).map(i => i.symbol).join(', '));
-    return liquidityList.slice(0, topLimit).map(item => item.symbol);
+    const topSymbols = liquidityList.slice(0, topLimit).map(item => item.symbol);
+    return { topSymbols, vpsMap: {} };
 }
 
 // Hàm lấy dữ liệu nến (OHLCV) từ dchart-api của VNDirect
 // Dữ liệu mở hoàn toàn CORS, không cần token!
-async function fetchStockHistory(symbol, days = 100) {
-    // Tính toán thời gian (Unix timestamp)
+async function fetchStockHistory(symbol, tradingDays = 100) {
+    // Nhân 1.5× để bù ngày nghỉ/cuối tuần (thực tế ~2/3 ngày lịch là phiên giao dịch)
+    const calendarDays = Math.ceil(tradingDays * 1.5);
     const to = Math.floor(Date.now() / 1000);
-    const from = to - (days * 24 * 60 * 60);
+    const from = to - (calendarDays * 24 * 60 * 60);
 
     const url = `https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=${symbol}&from=${from}&to=${to}`;
     
@@ -124,11 +143,3 @@ async function fetchStockHistory(symbol, days = 100) {
     }
 }
 
-// Hàm format tiền tệ
-function formatCurrency(value) {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
-}
-
-function formatNumber(value) {
-    return new Intl.NumberFormat('vi-VN').format(value);
-}
