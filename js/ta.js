@@ -151,7 +151,7 @@ function detectCandlePattern(lastCandle, prevCandle) {
     return { isPinbar, isEngulfing, isStrongClose };
 }
 
-// --- BỘ PHÁT HIỆN TÍN HIỆU CHIẾN LƯỢC CHUYÊN GIA TINH LỌC (STRICT EXPERT STRATEGIES) ---
+// --- BỘ PHÁT HIỆN TÍN HIỆU CHIẾN LƯỢC CHUYÊN GIA TINH LỌC (EXPERT STRATEGIES) ---
 function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd, volPercent, bb, vpsInfo) {
     const tags = [];
     if (!candles || candles.length < 20) return tags;
@@ -159,7 +159,9 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     const lastCandle = candles[candles.length - 1];
     const prevCandle = candles[candles.length - 2];
     const isBullishCandle = lastCandle.close > lastCandle.open;
-    const priceChangePct = prevCandle ? ((lastCandle.close - prevCandle.close) / prevCandle.close) * 100 : 0;
+    const priceChangePct = (vpsInfo && vpsInfo.changePc !== 0) 
+        ? vpsInfo.changePc 
+        : (prevCandle ? ((lastCandle.close - prevCandle.close) / prevCandle.close) * 100 : 0);
     const pattern = detectCandlePattern(lastCandle, prevCandle);
 
     // Tính giá đỉnh 20 phiên
@@ -167,20 +169,16 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     const max20High = Math.max(...slice20.map(c => c.high));
 
     // 1. 🎯 BẮT ĐÁY CHUẨN KỸ THUẬT (Strict Bottom Reversal)
-    // ĐIỀU KIỆN NGHIÊM NGẶT:
-    // - RSI nằm ở vùng quá bán (RSI < 38) HOẶC (RSI < 42 VÀ có nến rút chân Pinbar / Phủ nhập Engulfing / Chạm dải dưới Bollinger)
-    // - Giá nằm dưới MA20 (đang ở sóng chỉnh/đáy)
-    // - LOẠI BỎ các mã nến xanh yếu ớt thông thường!
-    const isNearBBLower = bb && currentPrice <= bb.lower * 1.02;
-    const isOversoldRSI = rsi && rsi <= 38;
-    const hasReversalPattern = pattern.isPinbar || pattern.isEngulfing || isNearBBLower;
+    const isNearBBLower = bb && currentPrice <= bb.lower * 1.025;
+    const isOversoldRSI = rsi && rsi <= 40;
+    const hasReversalPattern = pattern.isPinbar || pattern.isEngulfing || isNearBBLower || (isOversoldRSI && isBullishCandle);
 
-    if (sma20 && currentPrice < sma20 && (isOversoldRSI || (rsi && rsi < 42 && hasReversalPattern))) {
-        let descStr = `RSI vùng đáy (${rsi.toFixed(1)})`;
+    if (sma20 && currentPrice < sma20 * 1.01 && (isOversoldRSI || (rsi && rsi < 44 && hasReversalPattern))) {
+        let descStr = `RSI vùng giá thấp (${rsi.toFixed(1)})`;
         if (pattern.isPinbar) descStr += ' + Nến Pinbar rút chân đáy';
         else if (pattern.isEngulfing) descStr += ' + Nến Phủ Nhập Tăng';
         else if (isNearBBLower) descStr += ' + Chạm dải dưới Bollinger Bands';
-        else descStr += ' + Tín hiệu đảo chiều';
+        else descStr += ' + Tín hiệu đảo chiều tăng';
 
         tags.push({
             type: "BOTTOM",
@@ -190,44 +188,31 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
         });
     }
 
-    // 2. 🚀 NỔ DÒNG TIỀN (Strict Volume Surge & Momentum Breakout)
-    // ĐIỀU KIỆN NGHIÊM NGẶT:
-    // - Volume NỔ VỌT: Vol % >= 150% (gấp 1.5 lần trung bình 20 phiên)
-    // - Giá TĂNG MẠNH: Tăng >= 2.0%
-    // - Nến đóng ở vùng cao trong phiên (Strong Close, không bị cụt đầu)
-    // - MACD Histogram đang mở rộng tăng (macd.hist > macd.prevHist)
-    if (volPercent >= 150 && priceChangePct >= 2.0 && pattern.isStrongClose && macd && macd.hist > 0) {
+    // 2. 🚀 NỔ DÒNG TIỀN (Volume Surge & Momentum Breakout)
+    if (volPercent >= 125 && priceChangePct >= 1.0 && macd && macd.macd > macd.signal) {
         tags.push({
             type: "MONEY_FLOW",
             label: "🚀 NỔ DÒNG TIỀN",
             badgeClass: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
-            desc: `Volume nổ ${volPercent.toFixed(0)}% TB20 + Tăng đứt dứt +${priceChangePct.toFixed(1)}%`
+            desc: `Volume nổ ${volPercent.toFixed(0)}% TB20 + Tăng giá +${priceChangePct.toFixed(1)}%`
         });
     }
 
-    // 3. 👑 CỔ MẠNH DẪN DẮT (Strict Market Leader / Outperformer)
-    // ĐIỀU KIỆN NGHIÊM NGẶT:
-    // - Xếp hàng kênh tăng chuẩn: Giá > MA10 > MA20 > MA50
-    // - Đang ở vùng ĐỈNH 20 PHIÊN (Price >= 97% Đỉnh 20 phiên) -> Thể hiện sức mạnh dẫn dắt toàn thị trường
-    // - RSI nằm ở vùng mua mạnh (56 <= RSI <= 72)
-    // - MACD nằm trên Signal
-    const isMAAlignment = sma10 && sma20 && sma50 && currentPrice > sma10 && sma10 > sma20 && sma20 > sma50;
-    const isNear20DayHigh = currentPrice >= max20High * 0.97;
+    // 3. 👑 CỔ MẠNH DẪN DẮT (Market Leader / Outperformer)
+    const isMAAlignment = sma20 && sma50 && currentPrice > sma20 && sma20 > sma50;
+    const isNear20DayHigh = currentPrice >= max20High * 0.95;
 
-    if (isMAAlignment && isNear20DayHigh && macd && macd.macd > macd.signal && rsi >= 56 && rsi <= 72) {
+    if (isMAAlignment && isNear20DayHigh && macd && macd.macd > macd.signal && rsi >= 52 && rsi <= 74) {
         tags.push({
             type: "LEADER",
             label: "👑 CỔ MẠNH DẪN DẮT",
             badgeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/40",
-            desc: "Đang ở vùng Đỉnh 20 phiên + Trend xếp hàng hoàn hảo (Giá > MA10 > MA20 > MA50)"
+            desc: "Đang ở vùng Đỉnh 20 phiên + Kênh tăng vững chắc (Giá > MA20 > MA50)"
         });
     }
 
-    // 4. 💥 BỨT PHÁ NỀN BOLLINGER (Strict Bollinger Upper Breakout)
-    // ĐIỀU KIỆN NGHIÊM NGẶT:
-    // - Giá đóng cửa vượt hẳn trên dải Upper Bollinger Bands (>= +0.4%)
-    // - Volume lớn >= 140% TB20 + Giá tăng >= 1.5%
-    if (bb && currentPrice >= bb.upper * 1.004 && priceChangePct >= 1.5 && volPercent >= 140) {
+    // 4. 💥 BỨT PHÁ NỀN BOLLINGER (Bollinger Upper Breakout)
+    if (bb && currentPrice >= bb.upper * 0.998 && priceChangePct >= 1.0 && volPercent >= 120) {
         tags.push({
             type: "BB_BREAKOUT",
             label: "💥 VỠ DẢI TRÊN",

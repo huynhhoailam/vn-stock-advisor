@@ -61,7 +61,7 @@ async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
 
             if (sym && price > 0) {
                 const tradingValue = lot * price * 1000;
-                vpsMap[sym] = { lot, price, changePc, foreignNet, tradingValue };
+                vpsMap[sym] = { symbol: sym, lot, price, changePc, foreignNet, tradingValue };
                 if (lot > 0) {
                     liquidityList.push({ symbol: sym, tradingValue, lot, changePc });
                 }

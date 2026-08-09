@@ -42,8 +42,13 @@
             <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
                 Stock Advisor
             </h1>
-            <div id="market-status" class="text-xs font-semibold px-2 py-1 rounded bg-green-500/20 text-green-400">
-                Trực tuyến
+            <div class="flex items-center gap-2">
+                <div id="market-status" class="text-xs font-semibold px-2 py-1 rounded bg-green-500/20 text-green-400">
+                    Trực tuyến
+                </div>
+                <button id="btn-open-settings" class="p-1.5 text-gray-400 hover:text-white rounded-lg bg-dark-border/50 hover:bg-dark-border transition-colors" title="Cấu hình AI Key">
+                    <i class="fas fa-cog"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -103,10 +108,10 @@
         <section id="tab-scanner" class="tab-content hidden space-y-4 pt-4">
             <div class="flex justify-between items-center mb-3">
                 <h2 class="text-lg font-bold text-white">Top Khuyến Nghị</h2>
-                <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2 py-1 text-sm outline-none text-white">
-                    <option value="ALL">Tất cả</option>
-                    <option value="BUY">Mua/Mua Mạnh</option>
-                    <option value="SELL">Bán/Bán Mạnh</option>
+                <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2.5 py-1 text-xs outline-none text-white font-medium">
+                    <option value="BUY" selected>🔥 Mua / Mua Mạnh</option>
+                    <option value="ALL">⚡ Tất cả tín hiệu</option>
+                    <option value="SELL">🔻 Bán / Bán Mạnh</option>
                 </select>
             </div>
             <!-- Bộ lọc Tín hiệu Chiến lược -->
@@ -153,8 +158,23 @@
 
                 <!-- Indicators Summary -->
                 <h3 class="text-sm font-semibold text-gray-400 mb-2 border-b border-dark-border pb-2">Chỉ báo kỹ thuật</h3>
-                <div class="grid grid-cols-2 gap-4 text-sm" id="detail-indicators">
+                <div class="grid grid-cols-2 gap-4 text-sm mb-4" id="detail-indicators">
                     <!-- Populated via JS -->
+                </div>
+
+                <!-- AI News & Sentiment Section -->
+                <div class="border-t border-dark-border pt-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+                            <i class="fas fa-robot text-purple-400"></i> AI Trợ Lý Phân Tích Tin Tức & Sentiment
+                        </h3>
+                        <button id="btn-config-ai" class="text-[11px] text-purple-400 hover:underline flex items-center gap-1">
+                            <i class="fas fa-key"></i> Key AI
+                        </button>
+                    </div>
+                    <div id="detail-ai-news" class="space-y-3 text-xs">
+                        <div class="text-center text-gray-500 py-4">Đang tải tin tức & phân tích AI...</div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -232,8 +252,59 @@
         </div>
     </div>
 
+    <!-- Modal Cấu hình Gemini API Key -->
+    <div id="modal-settings" class="hidden fixed inset-0 bg-black/60 z-[70] flex items-center justify-center px-4 backdrop-blur-sm transition-opacity">
+        <div class="bg-dark-card w-full max-w-sm rounded-2xl border border-dark-border p-5 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fas fa-robot text-purple-400"></i> Cấu hình Google Gemini AI
+                </h3>
+                <button id="btn-close-settings" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+
+            <!-- Trạng thái Key -->
+            <div id="ai-key-status" class="hidden mb-3 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5"></div>
+
+            <!-- Hướng dẫn 3 bước -->
+            <div class="bg-[#0B0E14] rounded-xl border border-dark-border p-3 mb-3 space-y-2">
+                <div class="text-[11px] font-bold text-gray-300 mb-1">📋 Cách lấy API Key miễn phí:</div>
+                <div class="flex items-start gap-2 text-[11px] text-gray-400">
+                    <span class="bg-brand-primary text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 text-[9px] font-bold mt-0.5">1</span>
+                    <span>Truy cập <a href="https://aistudio.google.com/api-keys" target="_blank" class="text-brand-primary underline font-semibold">aistudio.google.com/api-keys</a> (đăng nhập Google)</span>
+                </div>
+                <div class="flex items-start gap-2 text-[11px] text-gray-400">
+                    <span class="bg-brand-primary text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 text-[9px] font-bold mt-0.5">2</span>
+                    <span>Bấm <b class="text-white">"Create API key"</b> → Chọn project (hoặc tạo mới)</span>
+                </div>
+                <div class="flex items-start gap-2 text-[11px] text-gray-400">
+                    <span class="bg-brand-primary text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 text-[9px] font-bold mt-0.5">3</span>
+                    <span>Copy API Key (dạng <b class="text-green-400">AIzaSy...</b> hoặc <b class="text-green-400">AQ....</b>) và dán vào ô bên dưới</span>
+                </div>
+                <div class="mt-1 pt-1 border-t border-dark-border text-[10px] text-gray-500">
+                    ✅ Miễn phí: <span class="text-green-400">1,500 request/ngày</span> · <span class="text-blue-400">15 req/phút</span> · Model gemini-2.0-flash
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-xs text-gray-400 block">Gemini API Key</label>
+                <div class="relative">
+                    <input type="password" id="gemini-key-input" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2.5 text-white text-xs outline-none focus:border-brand-primary pr-10" placeholder="AIzaSy..." autocomplete="off">
+                    <button type="button" id="btn-toggle-key-visibility" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-4">
+                <button id="btn-clear-gemini-key" class="py-2 px-3 rounded-lg font-semibold text-xs text-red-400 bg-red-500/10 hover:bg-red-500/20"><i class="fas fa-trash mr-1"></i>Xóa</button>
+                <button id="btn-save-gemini-key" class="flex-1 py-2 rounded-lg font-semibold text-xs text-white bg-brand-primary hover:bg-blue-600"><i class="fas fa-save mr-1"></i>Lưu & Kích Hoạt AI</button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/data.js"></script>
     <script src="js/ta.js"></script>
+    <script src="js/ai-news.js"></script>
     <script src="js/portfolio.js"></script>
     <script src="js/app.js"></script>
 </body>
