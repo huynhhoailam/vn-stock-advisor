@@ -31,6 +31,7 @@
     </script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -65,15 +66,28 @@
                     <span id="vnindex-value" class="text-3xl font-bold text-white">---</span>
                     <span id="vnindex-change" class="text-sm font-semibold mb-1">---</span>
                 </div>
+                <div id="market-updated-at" class="text-[10px] text-gray-500 mb-2">Đang cập nhật dữ liệu...</div>
                 <!-- Mini Chart Canvas -->
                 <div class="h-24 w-full">
                     <canvas id="vnindexChart"></canvas>
                 </div>
             </div>
 
+            <div id="market-regime-card" class="bg-dark-card rounded-2xl border border-dark-border p-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider text-gray-500">Trạng thái thị trường</div>
+                        <div id="market-regime-label" class="font-bold text-gray-300 mt-1">Đang phân tích...</div>
+                    </div>
+                    <div id="market-regime-score" class="text-xs px-2.5 py-1 rounded-full bg-gray-500/10 text-gray-400">---</div>
+                </div>
+                <div id="market-regime-advice" class="text-xs text-gray-400 mt-2">Đang đánh giá xu hướng VN-Index.</div>
+            </div>
+            <div class="text-[10px] leading-relaxed text-gray-500 px-1"><i class="fas fa-shield-halved mr-1"></i>Công cụ nghiên cứu cá nhân. Điểm kỹ thuật, AI và backtest không phải cam kết lợi nhuận; luôn kiểm tra công bố chính thức và quản trị rủi ro.</div>
+
             <div class="flex gap-2 mb-2">
                 <button id="btn-scan" class="flex-1 bg-brand-primary text-white py-3 rounded-xl font-semibold shadow-[0_0_15px_rgba(41,98,255,0.4)] active:scale-95 transition-transform">
-                    <i class="fas fa-search mr-2"></i> Chạy Quét Chuyên Gia
+                    <i class="fas fa-search mr-2"></i> Quét Cơ Hội Kỹ Thuật
                 </button>
             </div>
             <div id="scan-progress" class="hidden">
@@ -106,10 +120,15 @@
 
         <!-- Tab 2: Lọc cổ phiếu (Scanner) -->
         <section id="tab-scanner" class="tab-content hidden space-y-4 pt-4">
+            <div id="signal-history-stats" class="bg-dark-card border border-dark-border rounded-xl p-3 text-xs text-gray-400">Chưa có lịch sử quét.</div>
+            <div id="strategy-performance" class="hidden bg-dark-card border border-dark-border rounded-xl p-3">
+                <div class="text-sm font-bold text-white mb-2">Hiệu suất tín hiệu đã kiểm chứng</div>
+                <div id="strategy-performance-content" class="text-xs text-gray-400">Đang tổng hợp...</div>
+            </div>
             <div class="flex justify-between items-center mb-3">
-                <h2 class="text-lg font-bold text-white">Top Khuyến Nghị</h2>
+                <h2 class="text-lg font-bold text-white">Top Cơ Hội Kỹ Thuật</h2>
                 <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2.5 py-1 text-xs outline-none text-white font-medium">
-                    <option value="BUY" selected>🔥 Mua / Mua Mạnh</option>
+                    <option value="BUY" selected>🔥 Cơ hội mua đáng chú ý</option>
                     <option value="ALL">⚡ Tất cả tín hiệu</option>
                     <option value="SELL">🔻 Bán / Bán Mạnh</option>
                 </select>
@@ -117,10 +136,9 @@
             <!-- Bộ lọc Tín hiệu Chiến lược -->
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                 <button data-strategy="ALL" class="strategy-chip active-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-dark-border bg-dark-card text-gray-300 whitespace-nowrap">⚡ Tất cả</button>
-                <button data-strategy="MONEY_FLOW" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 whitespace-nowrap">🚀 Nổ Dòng Tiền</button>
-                <button data-strategy="LEADER" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-400 whitespace-nowrap">👑 Cổ Mạnh</button>
+                <button data-strategy="BREAKOUT" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 whitespace-nowrap">🚀 Breakout / Dòng Tiền</button>
+                <button data-strategy="TREND" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-400 whitespace-nowrap">👑 Theo Xu Hướng</button>
                 <button data-strategy="BOTTOM" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-purple-500/40 bg-purple-500/10 text-purple-400 whitespace-nowrap">🎯 Bắt Đáy</button>
-                <button data-strategy="BB_BREAKOUT" class="strategy-chip flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-blue-500/40 bg-blue-500/10 text-blue-400 whitespace-nowrap">💥 Vỡ Dải Trên</button>
             </div>
             <div id="scanner-results" class="space-y-3">
                 <div class="text-center text-gray-500 py-10">
@@ -150,6 +168,7 @@
                 </div>
                 <!-- Strategy Tags Row -->
                 <div id="detail-strategy-tags" class="flex flex-wrap gap-2 mb-3"></div>
+                <div id="detail-trade-plan" class="mb-4"></div>
 
                 <!-- Technical Chart -->
                 <div class="h-64 w-full relative mb-4">
@@ -192,14 +211,72 @@
                 </div>
             </div>
 
-            <div class="flex justify-between items-center mt-6 mb-2">
+            <div class="flex justify-between items-center mt-6 mb-2 gap-2">
                 <h3 class="font-bold text-white">Cổ phiếu đang giữ</h3>
-                <button id="btn-add-stock" class="text-brand-primary text-sm font-semibold p-2 bg-blue-500/10 rounded-lg">+ Thêm mã</button>
+                <div class="flex gap-1.5">
+                    <button id="btn-export-data" class="text-gray-300 text-xs font-semibold px-2 py-2 bg-dark-card border border-dark-border rounded-lg">Xuất</button>
+                    <button id="btn-import-data" class="text-gray-300 text-xs font-semibold px-2 py-2 bg-dark-card border border-dark-border rounded-lg">Nhập</button>
+                    <input id="input-import-data" type="file" accept="application/json,.json" class="hidden">
+                    <button id="btn-add-stock" class="text-brand-primary text-sm font-semibold p-2 bg-blue-500/10 rounded-lg">+ Thêm mã</button>
+                </div>
             </div>
 
             <div id="portfolio-list" class="space-y-3">
                 <!-- Rendered via JS -->
                 <div class="text-center text-gray-500 py-10">Chưa có mã nào trong danh mục</div>
+            </div>
+        </section>
+
+        <!-- Tab 5: Đầu tư thử nghiệm -->
+        <section id="tab-paper" class="tab-content hidden pt-4 space-y-4">
+            <div class="bg-gradient-to-br from-dark-card to-[#162033] rounded-2xl border border-dark-border p-4">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-xs text-gray-500">Tài sản thử nghiệm</div>
+                        <div id="paper-total-assets" class="text-2xl font-bold text-white mt-1">500.000.000 ₫</div>
+                        <div id="paper-total-pl" class="text-xs text-gray-400 mt-1">Lãi/lỗ: 0 ₫ (0%)</div>
+                    </div>
+                    <button id="btn-reset-paper" class="text-[10px] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-1.5">Cấu hình vốn</button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
+                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Tiền mặt</div><b id="paper-cash" class="text-white">500.000.000 ₫</b></div>
+                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Giá trị cổ phiếu</div><b id="paper-market-value" class="text-white">0 ₫</b></div>
+                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Lãi/lỗ đã chốt</div><b id="paper-realized-pl" class="text-white">0 ₫</b></div>
+                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Tỷ lệ tiền mặt</div><b id="paper-cash-ratio" class="text-white">100%</b></div>
+                </div>
+            </div>
+
+            <button id="btn-paper-buy" class="w-full bg-brand-primary text-white rounded-xl py-3 font-semibold"><i class="fas fa-cart-plus mr-1"></i> Đặt lệnh mua thử</button>
+
+            <div>
+                <h3 class="font-bold text-white mb-2">Vị thế đang mở</h3>
+                <div id="paper-positions" class="space-y-2"><div class="text-center text-gray-500 text-xs py-6">Chưa có vị thế</div></div>
+            </div>
+            <div>
+                <h3 class="font-bold text-white mb-2">Lịch sử giao dịch</h3>
+                <div id="paper-trades" class="space-y-2"><div class="text-center text-gray-500 text-xs py-6">Chưa có giao dịch</div></div>
+            </div>
+
+            <div class="bg-dark-card border border-dark-border rounded-2xl p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <div><h3 class="font-bold text-white">Backtest chiến lược</h3><p class="text-[10px] text-gray-500">Tín hiệu cuối ngày, khớp từ phiên kế tiếp</p></div>
+                    <i class="fas fa-vial text-purple-400"></i>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <input id="backtest-symbol" class="bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white uppercase text-sm" placeholder="Mã CP (FPT)">
+                    <select id="backtest-days" class="bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-sm">
+                        <option value="250">1 năm</option><option value="500">2 năm</option><option value="750">3 năm</option>
+                    </select>
+                </div>
+                <select id="backtest-strategy" class="w-full mt-2 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-sm"><option value="TREND" selected>Theo xu hướng (khuyến nghị)</option><option value="BREAKOUT">Breakout / dòng tiền</option><option value="BOTTOM">Bắt đáy</option><option value="ALL">Tất cả chiến lược</option></select>
+                <button id="btn-run-backtest" class="w-full mt-2 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-bold">Chạy backtest</button>
+                <div id="backtest-results" class="mt-3 text-xs text-gray-400">Chọn một mã để kiểm chứng thuật toán trên dữ liệu lịch sử.</div>
+                <div class="border-t border-dark-border mt-4 pt-4">
+                    <label class="text-xs text-gray-400">Batch backtest nhiều mã</label>
+                    <textarea id="batch-backtest-symbols" rows="2" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-xs uppercase">FPT,HPG,MBB,TCB,SSI,VNM,MWG,GMD,VHC,DGC</textarea>
+                    <button id="btn-run-batch-backtest" class="w-full mt-2 border border-purple-500/40 bg-purple-500/10 text-purple-300 rounded-lg py-2.5 text-sm font-bold">Chạy batch backtest</button>
+                    <div id="batch-backtest-results" class="mt-3 text-xs text-gray-400"></div>
+                </div>
             </div>
         </section>
 
@@ -223,6 +300,10 @@
             <button class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-portfolio">
                 <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                 <span class="text-[10px] font-medium">Danh mục</span>
+            </button>
+            <button class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-500 hover:text-white transition-colors" data-target="tab-paper">
+                <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V6m0 12v-2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="text-[10px] font-medium">Đầu tư thử</span>
             </button>
         </div>
     </nav>
@@ -259,7 +340,7 @@
                 <h3 class="text-base font-bold text-white flex items-center gap-2">
                     <i class="fas fa-robot text-purple-400"></i> Cấu hình Google Gemini AI
                 </h3>
-                <button id="btn-close-settings" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                <button id="btn-close-settings" class="text-gray-400 hover:text-white w-9 h-9 rounded-lg hover:bg-dark-border" aria-label="Đóng cấu hình"><i class="fas fa-times"></i></button>
             </div>
 
             <!-- Trạng thái Key -->
@@ -281,12 +362,13 @@
                     <span>Copy API Key (dạng <b class="text-green-400">AIzaSy...</b> hoặc <b class="text-green-400">AQ....</b>) và dán vào ô bên dưới</span>
                 </div>
                 <div class="mt-1 pt-1 border-t border-dark-border text-[10px] text-gray-500">
-                    ✅ Miễn phí: <span class="text-green-400">1,500 request/ngày</span> · <span class="text-blue-400">15 req/phút</span> · Model gemini-2.0-flash
+                    Model đang dùng: <span class="text-purple-300">gemini-3.6-flash</span> · Hạn mức phụ thuộc tài khoản Google AI Studio
                 </div>
             </div>
 
             <div class="space-y-2">
                 <label class="text-xs text-gray-400 block">Gemini API Key</label>
+                <p class="text-[10px] text-gray-500">Key chỉ được lưu cục bộ trên trình duyệt này. Không dùng trên máy công cộng.</p>
                 <div class="relative">
                     <input type="password" id="gemini-key-input" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2.5 text-white text-xs outline-none focus:border-brand-primary pr-10" placeholder="AIzaSy..." autocomplete="off">
                     <button type="button" id="btn-toggle-key-visibility" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs">
@@ -302,10 +384,45 @@
         </div>
     </div>
 
+    <div id="modal-paper-order" class="hidden fixed inset-0 bg-black/60 z-[80] flex items-center justify-center px-4 backdrop-blur-sm">
+        <div class="bg-dark-card w-full max-w-sm rounded-2xl border border-dark-border p-5">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="paper-order-title" class="font-bold text-white">Đặt lệnh thử nghiệm</h3>
+                <button id="btn-close-paper-order" class="w-8 h-8 text-gray-400" aria-label="Đóng lệnh"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mb-3">
+                <button id="paper-side-buy" class="py-2 rounded-lg bg-green-500/20 text-green-400 border border-green-500/40 font-bold">MUA</button>
+                <button id="paper-side-sell" class="py-2 rounded-lg bg-dark-border text-gray-400 font-bold">BÁN</button>
+            </div>
+            <div class="space-y-3">
+                <div><label class="text-xs text-gray-500">Mã cổ phiếu</label><input id="paper-symbol" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white uppercase" placeholder="FPT"></div>
+                <div><label class="text-xs text-gray-500">Giá tham chiếu</label><div id="paper-reference-price" class="mt-1 text-white font-bold">---</div></div>
+                <div><label class="text-xs text-gray-500">Số lượng (bội số 100)</label><input id="paper-volume" type="number" min="100" step="100" value="100" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white"></div>
+                <div class="grid grid-cols-[1fr_auto] gap-2 items-end"><div><label class="text-xs text-gray-500">Rủi ro tối đa mỗi lệnh</label><select id="paper-risk-percent" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white"><option value="0.5">0,5% tài khoản</option><option value="1" selected>1% tài khoản</option><option value="1.5">1,5% tài khoản</option><option value="2">2% tài khoản</option></select></div><button id="btn-paper-risk-size" class="px-3 py-2 rounded-lg border border-blue-500/30 text-blue-300 text-xs">Tính SL</button></div>
+                <div id="paper-order-estimate" class="text-xs text-gray-400 bg-[#0B0E14] rounded-lg p-2">Nhập mã để tính giá trị lệnh.</div>
+            </div>
+            <button id="btn-submit-paper-order" class="w-full mt-4 py-3 rounded-xl bg-brand-primary text-white font-bold">Xác nhận lệnh thử</button>
+            <div class="text-[10px] text-gray-500 mt-2 text-center">Mô phỏng: phí 0,15% · thuế bán 0,1% · trượt giá 0,05%</div>
+        </div>
+    </div>
+
+    <div id="modal-paper-capital" class="hidden fixed inset-0 bg-black/60 z-[85] flex items-center justify-center px-4 backdrop-blur-sm">
+        <div class="bg-dark-card w-full max-w-sm rounded-2xl border border-dark-border p-5">
+            <h3 class="font-bold text-white text-lg">Cấu hình vốn thử nghiệm</h3>
+            <p class="text-xs text-gray-500 mt-1">Thao tác này sẽ xóa vị thế và lịch sử giao dịch thử hiện tại.</p>
+            <label class="text-xs text-gray-400 block mt-4">Số vốn ban đầu (VNĐ)</label>
+            <input id="paper-initial-capital" type="number" min="1000000" step="1000000" value="500000000" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-3 text-white">
+            <div class="flex gap-2 mt-4"><button id="btn-cancel-paper-capital" class="flex-1 py-2.5 rounded-lg bg-dark-border text-gray-300">Hủy</button><button id="btn-save-paper-capital" class="flex-1 py-2.5 rounded-lg bg-brand-primary text-white font-bold">Đặt lại tài khoản</button></div>
+        </div>
+    </div>
+
     <script src="js/data.js"></script>
     <script src="js/ta.js"></script>
+    <script src="js/signal-store.js"></script>
     <script src="js/ai-news.js"></script>
     <script src="js/portfolio.js"></script>
+    <script src="js/paper-trading.js"></script>
+    <script src="js/backtest.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

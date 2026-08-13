@@ -124,6 +124,53 @@ function getVolumeTrend(data, period = 20) {
     return avgVol > 0 ? (currentVol / avgVol) * 100 : 0;
 }
 
+function buildTradePlan(candles, currentPrice, signal, strategies = []) {
+    const recent = candles.slice(-20);
+    const recentLow = Math.min(...recent.map(c => c.low));
+    const isBottom = strategies.some(s => s.type === 'BOTTOM');
+    const entryLow = currentPrice * (isBottom ? 0.985 : 0.99);
+    const entryHigh = currentPrice * (isBottom ? 1.01 : 1.015);
+    const structuralStop = recentLow * 0.995;
+    const maxRiskStop = currentPrice * (isBottom ? 0.94 : 0.95);
+    const stopLoss = Math.max(structuralStop, maxRiskStop);
+    const risk = Math.max(currentPrice - stopLoss, currentPrice * 0.03);
+    const actionable = signal === 'BUY' || signal === 'STRONG_BUY';
+
+    return {
+        status: actionable ? (isBottom ? 'MUA THĂM DÒ' : 'CHỜ ĐIỂM VÀO') : 'THEO DÕI',
+        entryLow,
+        entryHigh,
+        stopLoss,
+        target1: currentPrice + risk * 1.5,
+        target2: currentPrice + risk * 2.5,
+        riskPercent: ((currentPrice - stopLoss) / currentPrice) * 100,
+        note: isBottom
+            ? 'Bắt đáy rủi ro cao: chỉ giải ngân thăm dò khi có nến xác nhận.'
+            : 'Không mua đuổi ngoài vùng vào; hủy kế hoạch nếu thủng điểm dừng lỗ.'
+    };
+}
+
+function evaluateMarketRegime(candles) {
+    if (!candles || candles.length < 50) {
+        return { type: 'NEUTRAL', label: 'TRUNG TÍNH', adjustment: 0, confidence: 0, advice: 'Chưa đủ dữ liệu để xác định xu hướng thị trường.' };
+    }
+    const price = candles[candles.length - 1].close;
+    const sma20 = calculateSMA(candles, 20);
+    const sma50 = calculateSMA(candles, 50);
+    const rsi = calculateRSI(candles, 14);
+    const above20 = price > sma20;
+    const alignedUp = above20 && sma20 > sma50;
+    const alignedDown = price < sma20 && sma20 < sma50;
+
+    if (alignedUp && rsi >= 50) {
+        return { type: 'BULL', label: 'THUẬN XU HƯỚNG', adjustment: 7, confidence: Math.min(100, Math.round(60 + (rsi - 50) * 2)), advice: 'Có thể ưu tiên cổ phiếu mạnh và breakout, nhưng vẫn tránh mua đuổi.' };
+    }
+    if (alignedDown || (price < sma20 && rsi < 45)) {
+        return { type: 'BEAR', label: 'RỦI RO CAO', adjustment: -8, confidence: Math.min(100, Math.round(60 + Math.max(0, 45 - rsi) * 2)), advice: 'Ưu tiên tiền mặt; nếu bắt đáy chỉ nên thăm dò và tuân thủ dừng lỗ.' };
+    }
+    return { type: 'NEUTRAL', label: 'ĐI NGANG / CHƯA RÕ', adjustment: 0, confidence: 55, advice: 'Chỉ chọn tín hiệu có thanh khoản xác nhận và tỷ lệ lợi nhuận/rủi ro tốt.' };
+}
+
 // 7. Nhận diện mô hình nến Price Action chuẩn VSA/Pinbar
 function detectCandlePattern(lastCandle, prevCandle) {
     if (!lastCandle) return { isPinbar: false, isEngulfing: false, isStrongClose: false };
@@ -171,9 +218,10 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     // 1. 🎯 BẮT ĐÁY CHUẨN KỸ THUẬT (Strict Bottom Reversal)
     const isNearBBLower = bb && currentPrice <= bb.lower * 1.025;
     const isOversoldRSI = rsi && rsi <= 40;
-    const hasReversalPattern = pattern.isPinbar || pattern.isEngulfing || isNearBBLower || (isOversoldRSI && isBullishCandle);
+    const hasReversalPattern = pattern.isPinbar || pattern.isEngulfing || (isNearBBLower && isBullishCandle && pattern.isStrongClose);
+    const momentumImproving = macd && macd.hist > macd.prevHist;
 
-    if (sma20 && currentPrice < sma20 * 1.01 && (isOversoldRSI || (rsi && rsi < 44 && hasReversalPattern))) {
+    if (sma20 && currentPrice < sma20 * 1.01 && volPercent >= 70 && momentumImproving && hasReversalPattern && (isOversoldRSI || (rsi && rsi < 44))) {
         let descStr = `RSI vùng giá thấp (${rsi.toFixed(1)})`;
         if (pattern.isPinbar) descStr += ' + Nến Pinbar rút chân đáy';
         else if (pattern.isEngulfing) descStr += ' + Nến Phủ Nhập Tăng';
@@ -189,7 +237,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     }
 
     // 2. 🚀 NỔ DÒNG TIỀN (Volume Surge & Momentum Breakout)
-    if (volPercent >= 125 && priceChangePct >= 1.0 && macd && macd.macd > macd.signal) {
+    if (volPercent >= 125 && priceChangePct >= 1.0 && pattern.isStrongClose && macd && macd.macd > macd.signal) {
         tags.push({
             type: "MONEY_FLOW",
             label: "🚀 NỔ DÒNG TIỀN",
@@ -212,7 +260,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     }
 
     // 4. 💥 BỨT PHÁ NỀN BOLLINGER (Bollinger Upper Breakout)
-    if (bb && currentPrice >= bb.upper * 0.998 && priceChangePct >= 1.0 && volPercent >= 120) {
+    if (bb && prevCandle && currentPrice > prevCandle.high && currentPrice >= bb.upper * 0.998 && priceChangePct >= 1.0 && volPercent >= 120 && pattern.isStrongClose) {
         tags.push({
             type: "BB_BREAKOUT",
             label: "💥 VỠ DẢI TRÊN",
@@ -225,7 +273,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
 }
 
 // --- THUẬT TOÁN CHẤM ĐIỂM CHUYÊN GIA ĐA TIÊU CHÍ CHUẨN XÁC (STRICT EXPERT SCORING) ---
-function evaluateStock(symbol, candles, vpsInfo = null) {
+function evaluateStock(symbol, candles, vpsInfo = null, marketRegime = null, benchmarkCandles = null) {
     if (!candles || candles.length < 20) return null;
 
     const lastCandle = candles[candles.length - 1];
@@ -305,7 +353,7 @@ function evaluateStock(symbol, candles, vpsInfo = null) {
     // ── 4. ĐIỂM CHIẾN LƯỢC & PRICE ACTION / STRATEGY BONUS (Tối đa 20 điểm) ──
     if (strategies.some(s => s.type === "MONEY_FLOW")) {
         score += 10;
-        reasons.unshift("🚀 Dòng tiền cá mập/tổ chức nổ khối lượng kéo giá");
+        reasons.unshift("🚀 Giá và thanh khoản cùng tăng mạnh so với trung bình");
     }
     if (strategies.some(s => s.type === "LEADER")) {
         score += 10;
@@ -320,6 +368,53 @@ function evaluateStock(symbol, candles, vpsInfo = null) {
         reasons.unshift("💥 Vỡ dải trên Bollinger Bands gia tăng đà bứt phá");
     }
 
+    const isOverextended = Boolean(sma20 && currentPrice > sma20 * 1.12);
+    const isThinVolume = volPercent > 0 && volPercent < 60;
+    if (isOverextended) {
+        score -= 10;
+        reasons.unshift('⚠️ Giá đã cách MA20 trên 12%: rủi ro mua đuổi cao');
+    }
+    if (isThinVolume) {
+        score -= 5;
+        reasons.push('Thanh khoản dưới 60% trung bình: tín hiệu kém tin cậy');
+    }
+
+    let relativeStrength20 = null;
+    if (benchmarkCandles?.length >= 21 && candles.length >= 21) {
+        const stockStart = candles[candles.length - 21].close;
+        const benchmarkStart = benchmarkCandles[benchmarkCandles.length - 21].close;
+        const stockReturn = (currentPrice - stockStart) / stockStart * 100;
+        const benchmarkReturn = (benchmarkCandles[benchmarkCandles.length - 1].close - benchmarkStart) / benchmarkStart * 100;
+        relativeStrength20 = stockReturn - benchmarkReturn;
+        if (relativeStrength20 >= 5) {
+            score += 8;
+            reasons.unshift(`🏆 Vượt VN-Index ${relativeStrength20.toFixed(1)}% trong 20 phiên`);
+        } else if (relativeStrength20 > 0) {
+            score += 4;
+            reasons.push(`Sức mạnh tương đối tốt hơn VN-Index ${relativeStrength20.toFixed(1)}%`);
+        } else if (relativeStrength20 <= -5) {
+            score -= 6;
+            reasons.push(`Yếu hơn VN-Index ${Math.abs(relativeStrength20).toFixed(1)}% trong 20 phiên`);
+        }
+    }
+
+    const hasMomentumSetup = strategies.some(strategy => strategy.type === 'MONEY_FLOW' || strategy.type === 'BB_BREAKOUT');
+    const momentumTrendConfirmed = Boolean(sma20 && sma50 && currentPrice > sma20 && sma20 > sma50 && relativeStrength20 != null && relativeStrength20 > 0);
+    if (hasMomentumSetup && !momentumTrendConfirmed) {
+        score -= 12;
+        reasons.unshift('⚠️ Breakout chưa được xu hướng trung hạn và sức mạnh tương đối xác nhận');
+    }
+
+    if (marketRegime) {
+        const isBottomSetup = strategies.some(s => s.type === 'BOTTOM');
+        const adjustment = marketRegime.type === 'BEAR' && isBottomSetup
+            ? Math.max(-4, marketRegime.adjustment)
+            : marketRegime.adjustment;
+        score += adjustment;
+        if (adjustment > 0) reasons.unshift(`📈 Thị trường thuận xu hướng: +${adjustment} điểm`);
+        if (adjustment < 0) reasons.unshift(`🛡️ Thị trường rủi ro: ${adjustment} điểm`);
+    }
+
     // Chuẩn hóa điểm 0 - 100
     score = Math.min(100, Math.max(0, Math.round(score)));
 
@@ -328,10 +423,14 @@ function evaluateStock(symbol, candles, vpsInfo = null) {
     let signalText = "GIỮ";
     let signalClass = "bg-signal-hold";
 
-    if (score >= 82) {
-        signal = "STRONG_BUY"; signalText = "MUA MẠNH"; signalClass = "bg-signal-buy";
-    } else if (score >= 66) {
-        signal = "BUY"; signalText = "MUA"; signalClass = "bg-signal-buy";
+    if (score >= 82 && strategies.length > 0 && !isOverextended) {
+        signal = "STRONG_BUY"; signalText = "CƠ HỘI MẠNH"; signalClass = "bg-signal-buy";
+    } else if (score >= 66 && strategies.length > 0 && !isOverextended) {
+        signal = "BUY"; signalText = "THEO DÕI MUA"; signalClass = "bg-signal-buy";
+    } else if (score >= 66 && strategies.length === 0) {
+        signal = "HOLD"; signalText = "THEO DÕI"; signalClass = "bg-signal-hold";
+    } else if (isOverextended && score >= 66) {
+        signal = "HOLD"; signalText = "CHỜ ĐIỂM VÀO"; signalClass = "bg-signal-hold";
     } else if (score <= 32) {
         signal = "STRONG_SELL"; signalText = "BÁN MẠNH"; signalClass = "bg-signal-sell";
     } else if (score < 48) {
@@ -347,8 +446,11 @@ function evaluateStock(symbol, candles, vpsInfo = null) {
         signalClass,
         reasons,
         strategies,
+        tradePlan: buildTradePlan(candles, currentPrice, signal, strategies),
+        marketRegime: marketRegime?.type || 'NEUTRAL',
+        riskFlags: { isOverextended, isThinVolume, unconfirmedMomentum: hasMomentumSetup && !momentumTrendConfirmed },
         indicators: {
-            sma10, sma20, sma50, rsi, macd, bb, volPercent
+            sma10, sma20, sma50, rsi, macd, bb, volPercent, relativeStrength20
         }
     };
 }

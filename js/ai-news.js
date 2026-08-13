@@ -25,12 +25,20 @@ async function fetchStockNews(symbol, size = 5) {
             const items = raw?.data || raw;
 
             if (Array.isArray(items) && items.length > 0) {
-                return items.map(item => ({
+                const normalized = items.map(item => ({
                     title: item.title || item.newsTitle || '',
                     date: item.newsDate || item.createdDate || item.date,
                     summary: item.summary || item.newsSummary || '',
-                    url: item.newsUrl || item.url || `https://cafef.vn/tim-kiem.chn?keywords=${symbol}`
+                    url: item.newsUrl || item.url || `https://cafef.vn/tim-kiem.chn?keywords=${symbol}`,
+                    source: 'VNDirect'
                 })).filter(n => n.title);
+                const seenTitles = new Set();
+                return normalized.filter(news => {
+                    const key = news.title.toLowerCase().replace(/\s+/g, ' ').trim();
+                    if (seenTitles.has(key)) return false;
+                    seenTitles.add(key);
+                    return true;
+                });
             }
         } catch (e) {
             clearTimeout(timeoutId);
@@ -46,7 +54,7 @@ function taBasedAnalysis(symbol, taResult) {
             sentiment: "NEUTRAL", sentimentScore: 0,
             sentimentText: "TRUNG TÍNH", sentimentClass: "bg-gray-500/20 text-gray-300 border-gray-500/40",
             summary: `Chưa có dữ liệu kỹ thuật để phân tích mã ${symbol}.`,
-            catalyst: "CHƯA PHÂN TÍCH"
+            catalyst: "CHƯA PHÂN TÍCH", confidence: 0, risk: 'Thiếu dữ liệu để đánh giá.'
         };
     }
 
@@ -98,7 +106,7 @@ function taBasedAnalysis(symbol, taResult) {
 
     const summary = summaryParts.length > 0
         ? summaryParts.join('. ') + '.'
-        : reasons?.[0] || `Điểm chuyên gia ${score}/100 – tín hiệu ${signal}.`;
+        : reasons?.[0] || `Điểm kỹ thuật ${score}/100 – tín hiệu ${signal}.`;
 
     return {
         sentiment: clampedScore >= 5 ? "POSITIVE" : (clampedScore <= -5 ? "NEGATIVE" : "NEUTRAL"),
@@ -106,7 +114,9 @@ function taBasedAnalysis(symbol, taResult) {
         sentimentText,
         sentimentClass,
         summary,
-        catalyst
+        catalyst,
+        confidence: Math.min(90, Math.max(35, Math.round(50 + Math.abs(clampedScore) * 2))),
+        risk: score >= 70 ? 'Giá có thể rung lắc nếu thanh khoản suy yếu hoặc thị trường đảo chiều.' : 'Tín hiệu chưa đủ mạnh; cần chờ xác nhận về giá và thanh khoản.'
     };
 }
 
@@ -119,6 +129,8 @@ function ruleBasedNewsAnalysis(symbol, newsList, taResult) {
 
     let score = 0, posCount = 0, negCount = 0;
     let identifiedCatalyst = "TIN TỨC DOANH NGHIỆP";
+    const validDates = newsList.map(news => new Date(news.date).getTime()).filter(Number.isFinite);
+    const newestNewsAge = validDates.length ? Math.max(0, (Date.now() - Math.max(...validDates)) / 86400000) : Infinity;
 
     newsList.forEach(news => {
         const text = ((news.title || '') + " " + (news.summary || '')).toLowerCase();
@@ -139,7 +151,11 @@ function ruleBasedNewsAnalysis(symbol, newsList, taResult) {
     return {
         sentiment, sentimentScore: score, sentimentText, sentimentClass,
         summary: `Phát hiện ${posCount} tín hiệu tích cực, ${negCount} cảnh báo trong ${newsList.length} tin tức mới nhất.`,
-        catalyst: identifiedCatalyst
+        catalyst: identifiedCatalyst,
+        confidence: Math.max(20, Math.min(85, 40 + (posCount + negCount) * 8 - (newestNewsAge > 30 ? 20 : 0))),
+        risk: newestNewsAge > 30
+            ? 'Tin gần nhất đã quá 30 ngày; không nên dùng làm chất xúc tác giao dịch hiện tại.'
+            : (negCount > 0 ? `Có ${negCount} cụm thông tin tiêu cực cần kiểm tra lại từ nguồn công bố chính thức.` : 'Chưa phát hiện từ khóa rủi ro rõ ràng; vẫn cần đọc bản tin gốc.')
     };
 }
 
@@ -162,19 +178,25 @@ Chỉ báo kỹ thuật: ${taContext}
 Tin tức: ${newsText}
 
 Trả về JSON duy nhất, không markdown:
-{"sentimentScore":10,"sentimentText":"TÍCH CỰC 🟢","sentimentClass":"bg-green-500/20 text-green-400 border-green-500/40","summary":"Phân tích ngắn gọn 1-2 câu","catalyst":"LOẠI SỰ KIỆN"}
+Chỉ sử dụng dữ kiện xuất hiện trong phần Tin tức. Không tự suy diễn số liệu, không khẳng định chắc chắn giá sẽ tăng/giảm. Nêu rõ rủi ro và mức độ tin cậy.
+
+{"sentimentScore":10,"sentimentText":"TÍCH CỰC 🟢","sentimentClass":"bg-green-500/20 text-green-400 border-green-500/40","summary":"Phân tích ngắn gọn 1-2 câu","catalyst":"LOẠI SỰ KIỆN","risk":"Rủi ro quan trọng nhất","confidence":65}
 
 sentimentScore: số nguyên -20 đến +20`;
 
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            signal: controller.signal,
             body: JSON.stringify({
                 contents: [{ parts: [{ text: promptText }] }],
                 generationConfig: { maxOutputTokens: 200, temperature: 0.1 }
             })
         });
+        clearTimeout(timeoutId);
 
         if (response.status === 429 || response.status === 400 || response.status === 403) {
             return ruleBasedNewsAnalysis(symbol, newsList, taResult);
@@ -191,6 +213,8 @@ sentimentScore: số nguyên -20 đến +20`;
                 sentimentClass: parsed.sentimentClass || "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
                 summary: parsed.summary || "",
                 catalyst: parsed.catalyst || "PHÂN TÍCH KỸ THUẬT",
+                risk: parsed.risk || 'Cần kiểm tra lại thông tin từ nguồn công bố chính thức.',
+                confidence: Math.min(95, Math.max(0, parseInt(parsed.confidence) || 50)),
                 isAIGenerated: true
             };
         }
@@ -204,7 +228,7 @@ sentimentScore: số nguyên -20 đến +20`;
 // 5. Entry point – nhận thêm taResult từ evaluateStock
 async function getAINewsAnalysis(symbol, taResult = null) {
     symbol = symbol.toUpperCase().trim();
-    const cacheKey = `ai_news_${symbol}`;
+    const cacheKey = `ai_news_${symbol}_${taResult?.score ?? 'na'}_${taResult?.signal ?? 'na'}`;
 
     // Session cache 10 phút
     try {

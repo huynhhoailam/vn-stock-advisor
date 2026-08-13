@@ -3,9 +3,20 @@
 let mainChartInstance = null;
 let vnindexChartInstance = null;
 let scannedResults = []; // Cache for scanner
+let currentMarketRegime = null;
+let marketBenchmarkCandles = [];
 
 // Format functions
 const fmtPrice = (val) => new Intl.NumberFormat('vi-VN').format(val * 1000);
+const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+const safeExternalUrl = value => {
+    try {
+        const url = new URL(value, window.location.href);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : '#';
+    } catch (_) {
+        return '#';
+    }
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Setup Tab Navigation
@@ -32,6 +43,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Special actions when entering tabs
             if (targetId === 'tab-portfolio') {
                 renderPortfolio();
+            }
+            if (targetId === 'tab-paper') {
+                renderPaperTrading();
             }
         });
     });
@@ -65,6 +79,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-top-val')?.addEventListener('click', () => loadOverviewTopMarket('val'));
     document.getElementById('btn-top-vol')?.addEventListener('click', () => loadOverviewTopMarket('vol'));
     loadOverviewTopMarket('val');
+    renderSignalHistoryStats();
+    setTimeout(async () => {
+        try {
+            const updated = await refreshSignalOutcomes();
+            if (updated > 0) await renderSignalHistoryStats();
+        } catch (error) {
+            console.warn('Không thể cập nhật hiệu suất tín hiệu:', error.message);
+        }
+    }, 8000);
 
     // 7. Setup Gemini Settings Modal
     const modalSettings = document.getElementById('modal-settings');
@@ -95,6 +118,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-open-settings')?.addEventListener('click', openSettings);
     document.getElementById('btn-config-ai')?.addEventListener('click', openSettings);
     document.getElementById('btn-close-settings')?.addEventListener('click', () => modalSettings?.classList.add('hidden'));
+    modalSettings?.addEventListener('click', event => {
+        if (event.target === modalSettings) modalSettings.classList.add('hidden');
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            modalSettings?.classList.add('hidden');
+            document.getElementById('modal-portfolio')?.classList.add('hidden');
+            document.getElementById('modal-paper-order')?.classList.add('hidden');
+            document.getElementById('modal-paper-capital')?.classList.add('hidden');
+        }
+    });
 
     // Toggle show/hide key
     document.getElementById('btn-toggle-key-visibility')?.addEventListener('click', () => {
@@ -153,8 +187,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Load VN-INDEX
 async function loadVNIndex() {
-    const candles = await fetchStockHistory('VNINDEX', 30);
-    if (!candles || candles.length < 2) return;
+    const candles = await fetchStockHistory('VNINDEX', 80);
+    if (!candles || candles.length < 2) {
+        const status = document.getElementById('market-status');
+        if (status) {
+            status.textContent = 'Mất dữ liệu';
+            status.className = 'text-xs font-semibold px-2 py-1 rounded bg-red-500/20 text-red-400';
+        }
+        return;
+    }
 
     const current = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
@@ -165,13 +206,43 @@ async function loadVNIndex() {
     const changeEl = document.getElementById('vnindex-change');
 
     valEl.textContent = current.close.toFixed(2);
+    const updatedEl = document.getElementById('market-updated-at');
+    if (updatedEl) {
+        updatedEl.textContent = `Dữ liệu phiên: ${new Date(current.time).toLocaleDateString('vi-VN')} · cập nhật ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    currentMarketRegime = evaluateMarketRegime(candles);
+    marketBenchmarkCandles = candles;
+    renderMarketRegime(currentMarketRegime);
     
     const isUp = change >= 0;
+    const status = document.getElementById('market-status');
+    if (status) {
+        status.textContent = 'Dữ liệu hoạt động';
+        status.className = 'text-xs font-semibold px-2 py-1 rounded bg-green-500/20 text-green-400';
+    }
     changeEl.textContent = `${isUp ? '+' : ''}${change.toFixed(2)} (${isUp ? '+' : ''}${changePct.toFixed(2)}%)`;
     changeEl.className = `text-sm font-semibold mb-1 ${isUp ? 'text-brand-up' : 'text-brand-down'}`;
 
     // Render Mini Chart
     renderMiniChart('vnindexChart', candles.slice(-20), isUp ? '#00C853' : '#FF3D00');
+}
+
+function renderMarketRegime(regime) {
+    const label = document.getElementById('market-regime-label');
+    const score = document.getElementById('market-regime-score');
+    const advice = document.getElementById('market-regime-advice');
+    if (!label || !score || !advice || !regime) return;
+    const styles = {
+        BULL: ['text-green-400', 'bg-green-500/10 text-green-400'],
+        BEAR: ['text-red-400', 'bg-red-500/10 text-red-400'],
+        NEUTRAL: ['text-amber-400', 'bg-amber-500/10 text-amber-400']
+    };
+    const selected = styles[regime.type] || styles.NEUTRAL;
+    label.textContent = regime.label;
+    label.className = `font-bold mt-1 ${selected[0]}`;
+    score.textContent = `Tin cậy ${regime.confidence}%`;
+    score.className = `text-xs px-2.5 py-1 rounded-full ${selected[1]}`;
+    advice.textContent = regime.advice;
 }
 
 // Widget Top Thị Trường Realtime trên Tab Tổng Quan
@@ -196,6 +267,11 @@ async function loadOverviewTopMarket(type = 'val') {
         listContainer.innerHTML = '<div class="text-center text-gray-500 text-xs py-4">Đang tải bảng giá realtime VPS...</div>';
         const res = await getTopLiquidityHoseSymbols(60);
         overviewMarketData = Object.values(res.vpsMap || {});
+        const status = document.getElementById('market-status');
+        if (status && res.dataSource === 'VNDirect dự phòng') {
+            status.textContent = 'Nguồn dự phòng';
+            status.className = 'text-xs font-semibold px-2 py-1 rounded bg-amber-500/20 text-amber-400';
+        }
     }
 
     if (overviewMarketData.length === 0) {
@@ -269,7 +345,7 @@ async function runScanner() {
                 const candles = await fetchStockHistory(symbol, 120);
                 if (candles && candles.length >= 20) {
                     const vpsInfo = vpsMap[symbol] || null;
-                    const result = evaluateStock(symbol, candles, vpsInfo);
+                    const result = evaluateStock(symbol, candles, vpsInfo, currentMarketRegime, marketBenchmarkCandles);
                     if (result) scannedResults.push(result);
                 }
             } catch (err) {
@@ -287,11 +363,17 @@ async function runScanner() {
 
     // Sắp xếp kết quả theo Điểm Chuyên Gia (Giảm dần)
     scannedResults.sort((a, b) => b.score - a.score || b.indicators.volPercent - a.indicators.volPercent);
+    try {
+        await saveSignalBatch(scannedResults, currentMarketRegime);
+        await renderSignalHistoryStats();
+    } catch (error) {
+        console.warn('Không thể lưu lịch sử quét:', error.message);
+    }
 
     progressDiv.classList.add('hidden');
     btn.classList.remove('hidden');
     btn.innerHTML = '<i class="fas fa-check mr-2"></i> Đã Quét Xong';
-    setTimeout(() => { btn.innerHTML = '<i class="fas fa-search mr-2"></i> Chạy Quét Lại'; }, 3000);
+    setTimeout(() => { btn.innerHTML = '<i class="fas fa-search mr-2"></i> Quét Cơ Hội Lại'; }, 3000);
 
     // Chuyển sang Tab Bộ lọc để hiển thị kết quả
     document.querySelector('[data-target="tab-scanner"]').click();
@@ -316,7 +398,12 @@ function renderScannerResults() {
 
     // Lọc theo Tín hiệu Chiến lược
     if (strategyFilter !== 'ALL') {
-        filtered = filtered.filter(r => r.strategies && r.strategies.some(s => s.type === strategyFilter));
+        filtered = filtered.filter(result => {
+            const types = (result.strategies || []).map(strategy => strategy.type);
+            if (strategyFilter === 'BREAKOUT') return types.includes('MONEY_FLOW') || types.includes('BB_BREAKOUT');
+            if (strategyFilter === 'TREND') return types.includes('LEADER');
+            return types.includes(strategyFilter);
+        });
     }
 
     // Sắp xếp ưu tiên: STRONG_BUY > BUY > KHÁC, sau đó theo Điểm Chuyên Gia giảm dần
@@ -351,6 +438,7 @@ function renderScannerResults() {
             : `<span class="text-xs font-bold text-gray-500 w-4">${index + 1}</span>`;
 
         const topReason = res.reasons && res.reasons.length > 0 ? res.reasons[0] : '';
+        const plan = res.tradePlan;
 
         html += `
             <div class="bg-dark-card border border-dark-border rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer hover:border-brand-primary/50" onclick="analyzeSymbol('${res.symbol}')">
@@ -379,6 +467,12 @@ function renderScannerResults() {
                 ` : ''}
 
                 ${strategyBadges ? `<div class="flex flex-wrap gap-1.5 mt-2">${strategyBadges}</div>` : ''}
+                ${plan ? `<div class="grid grid-cols-3 gap-2 mt-2 text-[10px] text-center">
+                    <div class="bg-blue-500/10 rounded p-1.5"><div class="text-gray-500">Vùng vào</div><b class="text-blue-300">${fmtPrice(plan.entryLow)}–${fmtPrice(plan.entryHigh)}</b></div>
+                    <div class="bg-red-500/10 rounded p-1.5"><div class="text-gray-500">Dừng lỗ</div><b class="text-red-300">${fmtPrice(plan.stopLoss)}</b></div>
+                    <div class="bg-green-500/10 rounded p-1.5"><div class="text-gray-500">Mục tiêu</div><b class="text-green-300">${fmtPrice(plan.target1)}</b></div>
+                </div>` : ''}
+                ${(res.signal === 'BUY' || res.signal === 'STRONG_BUY') ? `<button onclick="event.stopPropagation(); openPaperOrder('${res.symbol}', 'BUY')" class="mt-2 w-full text-xs font-bold text-blue-300 border border-blue-500/30 bg-blue-500/10 rounded-lg py-2"><i class="fas fa-flask mr-1"></i>Mua thử ${res.symbol}</button>` : ''}
             </div>
         `;
     });
@@ -405,7 +499,7 @@ async function analyzeSymbol(symbol) {
         return;
     }
 
-    const result = evaluateStock(symbol, candles);
+    const result = evaluateStock(symbol, candles, null, currentMarketRegime, marketBenchmarkCandles);
     if (!result) return;
 
     document.getElementById('detail-symbol').textContent = symbol;
@@ -424,6 +518,19 @@ async function analyzeSymbol(symbol) {
     } else {
         tagsEl.innerHTML = '';
     }
+
+    const plan = result.tradePlan;
+    document.getElementById('detail-trade-plan').innerHTML = plan ? `
+        <div class="bg-[#0B0E14] border border-dark-border rounded-xl p-3">
+            <div class="flex justify-between items-center mb-2"><b class="text-sm text-white">Kế hoạch giao dịch tham khảo</b><span class="text-[10px] px-2 py-1 rounded bg-blue-500/15 text-blue-300">${plan.status}</span></div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div><span class="text-gray-500">Vùng vào:</span> <b class="text-white">${fmtPrice(plan.entryLow)}–${fmtPrice(plan.entryHigh)}</b></div>
+                <div><span class="text-gray-500">Dừng lỗ:</span> <b class="text-red-400">${fmtPrice(plan.stopLoss)} (-${plan.riskPercent.toFixed(1)}%)</b></div>
+                <div><span class="text-gray-500">Mục tiêu 1:</span> <b class="text-green-400">${fmtPrice(plan.target1)}</b></div>
+                <div><span class="text-gray-500">Mục tiêu 2:</span> <b class="text-green-400">${fmtPrice(plan.target2)}</b></div>
+            </div>
+            <div class="text-[10px] text-gray-500 mt-2">${plan.note}</div>
+        </div>` : '';
 
     // Fill Indicators
     const indEl = document.getElementById('detail-indicators');
@@ -447,7 +554,11 @@ async function analyzeSymbol(symbol) {
             <div class="font-bold ${result.indicators.volPercent > 100 ? 'text-brand-up' : 'text-gray-400'}">${result.indicators.volPercent ? result.indicators.volPercent.toFixed(0) + '%' : '-'}</div>
         </div>
         <div class="col-span-2 bg-[#0B0E14] p-3 rounded-lg border border-dark-border">
-            <div class="text-xs text-gray-500 mb-1">Nhận định chuyên gia</div>
+            <div class="text-xs text-gray-500 mb-1">Sức mạnh tương đối 20 phiên so với VN-Index</div>
+            <div class="font-bold ${result.indicators.relativeStrength20 >= 0 ? 'text-brand-up' : 'text-brand-down'}">${result.indicators.relativeStrength20 == null ? 'Chưa đủ dữ liệu' : `${result.indicators.relativeStrength20 >= 0 ? '+' : ''}${result.indicators.relativeStrength20.toFixed(2)}%`}</div>
+        </div>
+        <div class="col-span-2 bg-[#0B0E14] p-3 rounded-lg border border-dark-border">
+            <div class="text-xs text-gray-500 mb-1">Cơ sở chấm điểm kỹ thuật</div>
             <ul class="list-disc list-inside ml-4 text-xs space-y-1 text-gray-300">
                 ${result.reasons.map(r => `<li>${r}</li>`).join('')}
             </ul>
@@ -465,8 +576,8 @@ async function analyzeSymbol(symbol) {
             if (newsList && newsList.length > 0) {
                 newsItemsHtml = newsList.slice(0, 3).map(n => `
                     <div class="border-b border-dark-border/40 pb-1.5 last:border-b-0">
-                        <a href="${n.url}" target="_blank" class="text-gray-200 hover:text-brand-primary font-medium line-clamp-1 block">
-                            <i class="fas fa-newspaper text-gray-500 text-[10px] mr-1"></i>${n.title}
+                        <a href="${safeExternalUrl(n.url)}" target="_blank" rel="noopener noreferrer" class="text-gray-200 hover:text-brand-primary font-medium line-clamp-1 block">
+                            <i class="fas fa-newspaper text-gray-500 text-[10px] mr-1"></i>${escapeHtml(n.title)}
                         </a>
                         <div class="text-[10px] text-gray-500 mt-0.5">${n.date ? new Date(n.date).toLocaleDateString('vi-VN') : ''}</div>
                     </div>
@@ -484,16 +595,20 @@ async function analyzeSymbol(symbol) {
 
             // Tin tức section hoặc link tìm kiếm báo
             let newsSection = '';
+            const officialSources = `<div class="grid grid-cols-2 gap-2 mt-2">
+                <a href="https://www.hsx.vn/vi/quan-ly-niem-yet/co-phieu" target="_blank" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HOSE · Niêm yết/CBTT</a>
+                <a href="https://www.hnx.vn/vi-vn/co-phieu.html" target="_blank" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HNX · Công bố tin</a>
+            </div>`;
             if (newsList.length > 0) {
                 const newsItems = newsList.slice(0, 3).map(n => `
                     <div class="border-b border-dark-border/40 pb-1.5 last:border-b-0">
-                        <a href="${n.url}" target="_blank" class="text-gray-200 hover:text-brand-primary font-medium line-clamp-1 block text-[11px]">
-                            <i class="fas fa-newspaper text-gray-500 text-[10px] mr-1"></i>${n.title}
+                        <a href="${safeExternalUrl(n.url)}" target="_blank" rel="noopener noreferrer" class="text-gray-200 hover:text-brand-primary font-medium line-clamp-1 block text-[11px]">
+                            <i class="fas fa-newspaper text-gray-500 text-[10px] mr-1"></i>${escapeHtml(n.title)}
                         </a>
                         <div class="text-[10px] text-gray-500 mt-0.5">${n.date ? new Date(n.date).toLocaleDateString('vi-VN') : ''}</div>
                     </div>
                 `).join('');
-                newsSection = `<div class="space-y-1.5">${newsItems}</div>`;
+                newsSection = `<div class="space-y-1.5">${newsItems}</div>${officialSources}`;
             } else {
                 newsSection = `
                     <div class="flex gap-2">
@@ -505,7 +620,7 @@ async function analyzeSymbol(symbol) {
                             class="flex-1 text-center text-[11px] text-purple-400 border border-purple-500/30 bg-purple-500/5 rounded-lg py-1.5 hover:bg-purple-500/10 transition-colors">
                             <i class="fas fa-chart-bar mr-1"></i>Hồ sơ VNDirect
                         </a>
-                    </div>`;
+                    </div>${officialSources}`;
             }
 
             aiNewsEl.innerHTML = `
@@ -518,10 +633,12 @@ async function analyzeSymbol(symbol) {
                     </div>
                     <div class="text-xs text-gray-300 leading-relaxed bg-dark-card/50 p-2.5 rounded-lg border border-dark-border/60">
                         <div class="font-semibold text-purple-300 mb-1 flex items-center justify-between">
-                            <span>🤖 ${analysis.catalyst || 'PHÂN TÍCH KỸ THUẬT'}</span>
+                            <span>🤖 ${escapeHtml(analysis.catalyst || 'PHÂN TÍCH KỸ THUẬT')}</span>
                             ${sourceLabel}
                         </div>
-                        <div class="text-gray-300">${analysis.summary}</div>
+                        <div class="text-gray-300">${escapeHtml(analysis.summary)}</div>
+                        <div class="mt-2 pt-2 border-t border-dark-border/50 text-amber-300/90"><b>Rủi ro:</b> ${escapeHtml(analysis.risk || 'Cần kiểm tra thông tin và quản trị điểm dừng lỗ.')}</div>
+                        <div class="text-[10px] text-gray-500 mt-1">Độ tin cậy phân tích: ${analysis.confidence ?? 50}%</div>
                     </div>
                     <div>
                         <div class="text-[11px] font-semibold text-gray-400 mb-1.5">

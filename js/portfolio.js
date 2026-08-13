@@ -11,6 +11,83 @@ function savePortfolio() {
     localStorage.setItem('vnStockPortfolio', JSON.stringify(portfolio));
 }
 
+async function readBackupStore(storeName) {
+    const db = await openSignalDB();
+    const transaction = db.transaction(storeName, 'readonly');
+    const request = transaction.objectStore(storeName).getAll();
+    const rows = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return rows;
+}
+
+async function exportLocalData() {
+    const [signals, paperAccounts, paperTrades, backtestRuns] = await Promise.all([
+        readBackupStore('signals'),
+        readBackupStore('paperAccounts'),
+        readBackupStore('paperTrades'),
+        readBackupStore('backtestRuns')
+    ]);
+    const backup = {
+        app: 'vn-stock-advisor',
+        schemaVersion: 2,
+        exportedAt: new Date().toISOString(),
+        portfolio,
+        signals,
+        paperAccounts,
+        paperTrades,
+        backtestRuns
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `vn-stock-advisor-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importLocalData(file) {
+    const backup = JSON.parse(await file.text());
+    if (backup?.app !== 'vn-stock-advisor' || !Array.isArray(backup.portfolio)) {
+        throw new Error('File sao lưu không đúng định dạng.');
+    }
+    const cleanPortfolio = backup.portfolio.map(item => ({
+        symbol: String(item.symbol || '').toUpperCase().trim(),
+        buyPrice: Number(item.buyPrice),
+        volume: Number(item.volume)
+    })).filter(item => /^[A-Z0-9]{2,10}$/.test(item.symbol) && item.buyPrice > 0 && item.volume > 0);
+
+    if (cleanPortfolio.length !== backup.portfolio.length) {
+        throw new Error('File chứa mã, giá hoặc số lượng không hợp lệ.');
+    }
+    portfolio = cleanPortfolio;
+    savePortfolio();
+    if (backup.schemaVersion >= 2) {
+        const db = await openSignalDB();
+        const storeNames = ['signals', 'paperAccounts', 'paperTrades', 'backtestRuns'];
+        const transaction = db.transaction(storeNames, 'readwrite');
+        const completion = new Promise((resolve, reject) => {
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+        });
+        storeNames.forEach(storeName => {
+            const store = transaction.objectStore(storeName);
+            store.clear();
+            const rows = Array.isArray(backup[storeName]) ? backup[storeName] : [];
+            rows.forEach(row => store.put(row));
+        });
+        await completion;
+        db.close();
+    }
+    await renderPortfolio();
+    if (typeof renderSignalHistoryStats === 'function') await renderSignalHistoryStats();
+}
+
 function addStockToPortfolio(symbol, buyPrice, volume) {
     symbol = symbol.toUpperCase().trim();
     const existingIndex = portfolio.findIndex(p => p.symbol === symbol);
@@ -62,7 +139,7 @@ async function renderPortfolio() {
         return;
     }
 
-    listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">Đang cập nhật giá & phân tích gợi ý chuyên gia...</div>';
+    listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">Đang cập nhật giá & phân tích kỹ thuật...</div>';
 
     let totalCurrentValue = 0;
     let totalInvestedValue = 0;
@@ -77,7 +154,7 @@ async function renderPortfolio() {
 
         if (candles && candles.length > 0) {
             currentPrice = candles[candles.length - 1].close * 1000;
-            evalResult = evaluateStock(item.symbol, candles);
+            evalResult = evaluateStock(item.symbol, candles, null, typeof currentMarketRegime !== 'undefined' ? currentMarketRegime : null, typeof marketBenchmarkCandles !== 'undefined' ? marketBenchmarkCandles : null);
         }
 
         const currentVal = currentPrice * item.volume;
@@ -101,7 +178,7 @@ async function renderPortfolio() {
             const signal = evalResult.signal;
 
             if (isUp && (signal === 'SELL' || signal === 'STRONG_SELL' || (evalResult.indicators.rsi && evalResult.indicators.rsi > 70))) {
-                adviceTag = '💡 NÊN CHỐT LỜI';
+                adviceTag = '💡 CÂN NHẮC CHỐT LỜI';
                 adviceClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
                 adviceText = `Đang lãi <b>+${plPercent.toFixed(1)}%</b>, chỉ báo chạm vùng quá mua/suy yếu. Khuyên chốt lời/hạ tỷ trọng bảo vệ thành quả.`;
             } else if (!isUp && (signal === 'STRONG_SELL' || score < 42)) {
@@ -109,9 +186,9 @@ async function renderPortfolio() {
                 adviceClass = 'bg-red-500/20 text-red-400 border-red-500/40';
                 adviceText = `Đang lỗ <b>${plPercent.toFixed(1)}%</b> và xu hướng vi phạm vùng hỗ trợ (${score}Đ). Khuyên hạ tỷ trọng cắt lỗ bảo vệ vốn.`;
             } else if (signal === 'STRONG_BUY' || signal === 'BUY') {
-                adviceTag = '🚀 GIA TĂNG TỶ TRỌNG';
+                adviceTag = '🚀 THEO DÕI GIA TĂNG';
                 adviceClass = 'bg-blue-500/20 text-blue-400 border-blue-500/40';
-                adviceText = `Tín hiệu kỹ thuật tích cực (${score}Đ). Có thể tiếp tục nắm giữ hoặc mua gia tăng ở nhịp chỉnh.`;
+                adviceText = `Tín hiệu kỹ thuật tích cực (${score}Đ). Chỉ cân nhắc gia tăng ở vùng vào hợp lý và trong giới hạn rủi ro danh mục.`;
             } else {
                 adviceTag = '🔒 TIẾP TỤC NẮM GIỮ';
                 adviceClass = 'bg-gray-500/20 text-gray-300 border-gray-500/40';
@@ -226,4 +303,21 @@ document.getElementById('btn-save-port')?.addEventListener('click', () => {
     symbolInput.value = '';
     document.getElementById('port-price').value = '';
     document.getElementById('port-vol').value = '';
+});
+
+document.getElementById('btn-export-data')?.addEventListener('click', exportLocalData);
+document.getElementById('btn-import-data')?.addEventListener('click', () => {
+    document.getElementById('input-import-data')?.click();
+});
+document.getElementById('input-import-data')?.addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+        await importLocalData(file);
+        alert(`Đã khôi phục ${portfolio.length} mã trong danh mục.`);
+    } catch (error) {
+        alert(error.message || 'Không thể đọc file sao lưu.');
+    } finally {
+        event.target.value = '';
+    }
 });

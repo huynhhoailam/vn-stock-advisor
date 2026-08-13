@@ -14,11 +14,49 @@ const ALL_HOSE_SYMBOLS = [
     "VIB","VIC","VIX","VJC","VND","VNG","VNL","VNM","VPB","VPI","VRE","VSC","VSH","VTB","YBM","YEG"
 ];
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 // ============================================================
 // Lọc Top Thanh Khoản HOSE siêu tốc dùng VPS bgapidatafeed (CORS: *)
 // API: /getliststockdata/{sym1,sym2,...} → trả lot + avePrice + foreignNet
 // ============================================================
+let liquidityCache = null;
+let liquidityRequestPromise = null;
+
 async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
+    if (liquidityCache && Date.now() - liquidityCache.timestamp < 2 * 60 * 1000) {
+        updateProgressFn?.(40, 'Bước 1/2: Dùng dữ liệu thanh khoản vừa cập nhật.');
+        return {
+            topSymbols: liquidityCache.data.topSymbols.slice(0, topLimit),
+            vpsMap: liquidityCache.data.vpsMap,
+            dataSource: liquidityCache.data.dataSource
+        };
+    }
+    if (liquidityRequestPromise) {
+        updateProgressFn?.(15, 'Bước 1/2: Đang dùng chung lượt tải dữ liệu thị trường...');
+        const data = await liquidityRequestPromise;
+        updateProgressFn?.(40, 'Bước 1/2: Hoàn tất dữ liệu thanh khoản.');
+        return { topSymbols: data.topSymbols.slice(0, topLimit), vpsMap: data.vpsMap, dataSource: data.dataSource };
+    }
+    liquidityRequestPromise = loadTopLiquidityHoseSymbols(Math.max(60, topLimit), updateProgressFn);
+    try {
+        const data = await liquidityRequestPromise;
+        liquidityCache = { timestamp: Date.now(), data };
+        return { topSymbols: data.topSymbols.slice(0, topLimit), vpsMap: data.vpsMap, dataSource: data.dataSource };
+    } finally {
+        liquidityRequestPromise = null;
+    }
+}
+
+async function loadTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
     const VPS_API = 'https://bgapidatafeed.vps.com.vn/getliststockdata/';
 
     if (updateProgressFn) updateProgressFn(5, 'Bước 1/2: Đang tải bảng giá VPS cho toàn bộ sàn HOSE...');
@@ -40,7 +78,7 @@ async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
         const batchResults = await Promise.all(batches.map(async (batch, idx) => {
             const url = VPS_API + batch.join(',');
             try {
-                const res = await fetch(url);
+                const res = await fetchWithTimeout(url, {}, 12000);
                 if (!res.ok) throw new Error(`VPS batch ${idx} error ${res.status}`);
                 return await res.json();
             } catch (e) {
@@ -73,7 +111,7 @@ async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
             const topSymbols = liquidityList.slice(0, topLimit).map(i => i.symbol);
             console.log(`✅ VPS API: Top ${topLimit} mã thanh khoản HOSE từ ${candidates.length} mã động → ${topSymbols.join(', ')}`);
             if (updateProgressFn) updateProgressFn(40, `Bước 1/2: Hoàn tất! Lọc Top ${topSymbols.length} mã thanh khoản.`);
-            return { topSymbols, vpsMap };
+            return { topSymbols, vpsMap, dataSource: 'VPS realtime' };
         }
     } catch (e) {
         console.warn('⚠️ VPS API thất bại, dùng dchart fallback:', e);
@@ -89,8 +127,13 @@ async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
                 const candles = await fetchStockHistory(symbol, 5);
                 if (candles && candles.length > 0) {
                     const last = candles[candles.length - 1];
-                    const tv = last.volume * last.close;
-                    if (tv > 0) liquidityList.push({ symbol, tradingValue: tv });
+                    const previous = candles[candles.length - 2];
+                    const tv = last.volume * last.close * 1000;
+                    const changePc = previous?.close ? (last.close - previous.close) / previous.close * 100 : 0;
+                    if (tv > 0) {
+                        liquidityList.push({ symbol, tradingValue: tv });
+                        vpsMap[symbol] = { symbol, lot: last.volume / 100, price: last.close, changePc, foreignNet: 0, tradingValue: tv };
+                    }
                 }
             } catch (err) {}
         }));
@@ -101,12 +144,32 @@ async function getTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
     }
     liquidityList.sort((a, b) => b.tradingValue - a.tradingValue);
     const topSymbols = liquidityList.slice(0, topLimit).map(item => item.symbol);
-    return { topSymbols, vpsMap: {} };
+    return { topSymbols, vpsMap, dataSource: 'VNDirect dự phòng' };
+}
+
+const stockHistoryCache = new Map();
+const stockHistoryRequests = new Map();
+
+async function fetchStockHistory(symbol, tradingDays = 100) {
+    const normalizedSymbol = symbol.toUpperCase().trim();
+    const cacheKey = `${normalizedSymbol}:${tradingDays}`;
+    const cached = stockHistoryCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) return cached.data;
+    if (stockHistoryRequests.has(cacheKey)) return stockHistoryRequests.get(cacheKey);
+
+    const request = loadStockHistory(normalizedSymbol, tradingDays);
+    stockHistoryRequests.set(cacheKey, request);
+    try {
+        const data = await request;
+        if (data?.length) stockHistoryCache.set(cacheKey, { timestamp: Date.now(), data });
+        return data;
+    } finally {
+        stockHistoryRequests.delete(cacheKey);
+    }
 }
 
 // Hàm lấy dữ liệu nến (OHLCV) từ dchart-api của VNDirect
-// Dữ liệu mở hoàn toàn CORS, không cần token!
-async function fetchStockHistory(symbol, tradingDays = 100) {
+async function loadStockHistory(symbol, tradingDays = 100) {
     // Nhân 1.5× để bù ngày nghỉ/cuối tuần (thực tế ~2/3 ngày lịch là phiên giao dịch)
     const calendarDays = Math.ceil(tradingDays * 1.5);
     const to = Math.floor(Date.now() / 1000);
@@ -115,7 +178,7 @@ async function fetchStockHistory(symbol, tradingDays = 100) {
     const url = `https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=${symbol}&from=${from}&to=${to}`;
     
     try {
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url, {}, 12000);
         if (!response.ok) throw new Error("Network response was not ok");
         const data = await response.json();
         
@@ -138,7 +201,7 @@ async function fetchStockHistory(symbol, tradingDays = 100) {
         return candles;
 
     } catch (error) {
-        console.error(`Error fetching data for ${symbol}:`, error);
+        console.warn(`Không thể đọc dữ liệu ${symbol}:`, error.message);
         return null;
     }
 }
