@@ -150,10 +150,16 @@ async function renderPortfolio() {
         // Lấy lịch sử 60 phiên để phân tích kỹ thuật
         const candles = await fetchStockHistory(item.symbol, 60);
         let currentPrice = item.buyPrice; // fallback
+        let dailyChangePercent = null;
         let evalResult = null;
 
         if (candles && candles.length > 0) {
             currentPrice = candles[candles.length - 1].close * 1000;
+            if (candles.length >= 2) {
+                const latestClose = candles[candles.length - 1].close;
+                const previousClose = candles[candles.length - 2].close;
+                if (previousClose > 0) dailyChangePercent = (latestClose - previousClose) / previousClose * 100;
+            }
             evalResult = evaluateStock(item.symbol, candles, null, typeof currentMarketRegime !== 'undefined' ? currentMarketRegime : null, typeof marketBenchmarkCandles !== 'undefined' ? marketBenchmarkCandles : null);
         }
 
@@ -167,6 +173,8 @@ async function renderPortfolio() {
         const plPercent = investedVal > 0 ? (pl / investedVal) * 100 : 0;
         const isUp = pl >= 0;
         const colorClass = isUp ? 'text-brand-up' : 'text-brand-down';
+        const isDailyUp = dailyChangePercent != null && dailyChangePercent >= 0;
+        const dailyColorClass = dailyChangePercent == null ? 'text-gray-500' : (isDailyUp ? 'text-brand-up' : 'text-brand-down');
 
         // 🧠 TẠO GỢI Ý THÔNG MINH CHO TỪNG MÃ (SMART ADVISOR ADVICE)
         let adviceTag = '';
@@ -210,6 +218,10 @@ async function renderPortfolio() {
                             ${evalResult ? `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${evalResult.signalClass}">${evalResult.signalText} (${evalResult.score}Đ)</span>` : ''}
                         </div>
                         <div class="text-xs text-gray-400 mt-1">SL: <span class="text-white font-semibold">${formatNumber(item.volume)}</span> | Giá vốn: <span class="text-white font-semibold">${formatNumber(item.buyPrice)}</span></div>
+                        <div class="portfolio-live-price text-xs mt-1 flex items-center gap-3 whitespace-nowrap">
+                            <span class="text-gray-500 min-w-0">Giá hiện tại: <b class="text-white">${formatNumber(currentPrice)}</b></span>
+                            <span class="${dailyColorClass} flex-shrink-0">Hôm nay: <b>${dailyChangePercent == null ? '---' : `${isDailyUp ? '+' : ''}${dailyChangePercent.toFixed(2)}%`}</b></span>
+                        </div>
                     </div>
                     <div class="text-right">
                         <div class="font-bold text-white text-base">${formatCurrency(currentVal)}</div>

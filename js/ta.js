@@ -114,14 +114,18 @@ function calculateBollingerBands(data, period = 20, multiplier = 2) {
 
 // 6. Xu hướng Volume (Tỷ lệ % so với trung bình 20 phiên)
 function getVolumeTrend(data, period = 20) {
-    if (!data || data.length < period) return 0;
-    let sum = 0;
-    for (let i = data.length - period; i < data.length; i++) {
-        sum += data[i].volume;
-    }
-    const avgVol = sum / period;
+    if (!data || data.length <= period) return 0;
+    const previousVolumes = data.slice(-(period + 1), -1).map(candle => Number(candle.volume) || 0);
+    const avgVol = previousVolumes.reduce((sum, volume) => sum + volume, 0) / period;
     const currentVol = data[data.length - 1].volume;
     return avgVol > 0 ? (currentVol / avgVol) * 100 : 0;
+}
+
+function findCandleAtOrBefore(candles, timestamp) {
+    for (let index = candles.length - 1; index >= 0; index--) {
+        if (candles[index].time <= timestamp) return candles[index];
+    }
+    return null;
 }
 
 function buildTradePlan(candles, currentPrice, signal, strategies = []) {
@@ -381,12 +385,20 @@ function evaluateStock(symbol, candles, vpsInfo = null, marketRegime = null, ben
 
     let relativeStrength20 = null;
     if (benchmarkCandles?.length >= 21 && candles.length >= 21) {
-        const stockStart = candles[candles.length - 21].close;
-        const benchmarkStart = benchmarkCandles[benchmarkCandles.length - 21].close;
+        const stockStartCandle = candles[candles.length - 21];
+        const stockEndCandle = candles[candles.length - 1];
+        const benchmarkStartCandle = findCandleAtOrBefore(benchmarkCandles, stockStartCandle.time);
+        const benchmarkEndCandle = findCandleAtOrBefore(benchmarkCandles, stockEndCandle.time);
+        const stockStart = stockStartCandle.close;
+        const benchmarkStart = benchmarkStartCandle?.close;
         const stockReturn = (currentPrice - stockStart) / stockStart * 100;
-        const benchmarkReturn = (benchmarkCandles[benchmarkCandles.length - 1].close - benchmarkStart) / benchmarkStart * 100;
-        relativeStrength20 = stockReturn - benchmarkReturn;
-        if (relativeStrength20 >= 5) {
+        const benchmarkReturn = benchmarkStart > 0 && benchmarkEndCandle
+            ? (benchmarkEndCandle.close - benchmarkStart) / benchmarkStart * 100
+            : null;
+        relativeStrength20 = benchmarkReturn == null ? null : stockReturn - benchmarkReturn;
+        if (relativeStrength20 == null) {
+            reasons.push('Chưa căn chỉnh được dữ liệu VN-Index cùng kỳ');
+        } else if (relativeStrength20 >= 5) {
             score += 8;
             reasons.unshift(`🏆 Vượt VN-Index ${relativeStrength20.toFixed(1)}% trong 20 phiên`);
         } else if (relativeStrength20 > 0) {

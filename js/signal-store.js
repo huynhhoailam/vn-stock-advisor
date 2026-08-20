@@ -2,6 +2,9 @@
 const SIGNAL_DB_NAME = 'vnStockAdvisorDB';
 const SIGNAL_DB_VERSION = 3;
 const SIGNAL_STORE = 'signals';
+const SIGNAL_FEE_RATE = 0.0015;
+const SIGNAL_SELL_TAX_RATE = 0.001;
+const SIGNAL_SLIPPAGE_RATE = 0.0005;
 
 function openSignalDB() {
     return new Promise((resolve, reject) => {
@@ -119,15 +122,19 @@ function calculateOutcome(row, candles, horizon) {
     const futureCandles = candles.filter(candle => new Date(candle.time).toISOString().slice(0, 10) > row.sessionDate);
     if (futureCandles.length < horizon) return null;
     const windowCandles = futureCandles.slice(0, horizon);
+    const entryCandle = windowCandles[0];
+    const entryPrice = entryCandle.open * (1 + SIGNAL_SLIPPAGE_RATE);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0 || (row.tradePlan?.stopLoss && entryPrice <= row.tradePlan.stopLoss)) return null;
     const exitCandle = windowCandles[horizon - 1];
     let status = 'TIME_EXIT';
     let exitPrice = exitCandle.close;
     let evaluatedDate = new Date(exitCandle.time).toISOString().slice(0, 10);
 
-    for (const candle of windowCandles) {
-        if (row.tradePlan?.stopLoss && candle.low <= row.tradePlan.stopLoss) {
+    // Bắt đầu từ phiên sau phiên vào để tránh dùng high/low đã xảy ra trước lúc khớp lệnh.
+    for (const candle of windowCandles.slice(1)) {
+        if (row.tradePlan?.stopLoss && (candle.open <= row.tradePlan.stopLoss || candle.low <= row.tradePlan.stopLoss)) {
             status = 'STOP';
-            exitPrice = row.tradePlan.stopLoss;
+            exitPrice = candle.open <= row.tradePlan.stopLoss ? candle.open : row.tradePlan.stopLoss;
             evaluatedDate = new Date(candle.time).toISOString().slice(0, 10);
             break;
         }
@@ -138,12 +145,16 @@ function calculateOutcome(row, candles, horizon) {
             break;
         }
     }
+    const executionExitPrice = exitPrice * (1 - SIGNAL_SLIPPAGE_RATE);
+    const grossReturn = (executionExitPrice - entryPrice) / entryPrice;
+    const netReturn = grossReturn - SIGNAL_FEE_RATE * 2 - SIGNAL_SELL_TAX_RATE;
     return {
         horizon,
         status,
-        exitPrice,
+        entryPrice,
+        exitPrice: executionExitPrice,
         evaluatedDate,
-        returnPct: (exitPrice - row.price) / row.price * 100
+        returnPct: netReturn * 100
     };
 }
 

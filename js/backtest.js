@@ -13,6 +13,8 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
     let equity = 100;
     let peakEquity = equity;
     let maxDrawdown = 0;
+    const riskBudgetFraction = 0.01;
+    const maxPositionWeight = 0.25;
 
     for (let signalIndex = 60; signalIndex < candles.length - 2; signalIndex++) {
         const knownData = candles.slice(0, signalIndex + 1);
@@ -50,20 +52,31 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
         const entryPrice = rawEntryPrice * (1 + PAPER_SLIPPAGE_RATE);
         const stopLoss = result.tradePlan.stopLoss;
         const target = result.tradePlan.target1;
+        const stopRiskFraction = Math.max((entryPrice - stopLoss) / entryPrice, 0.01);
+        const positionWeight = Math.min(maxPositionWeight, riskBudgetFraction / stopRiskFraction);
+        const equityBeforeTrade = equity;
         const lastExitIndex = Math.min(entryIndex + 19, candles.length - 1);
         let exitIndex = lastExitIndex;
         let rawExitPrice = candles[lastExitIndex].close;
         let exitReason = 'TIME';
 
-        for (let index = entryIndex; index <= lastExitIndex; index++) {
+        // Không dùng high/low của nến khớp lệnh vì không biết biến động xảy ra trước hay sau thời điểm khớp.
+        for (let index = entryIndex + 1; index <= lastExitIndex; index++) {
             const candle = candles[index];
-            if (candle.low <= stopLoss) {
-                rawExitPrice = stopLoss;
+            const markedReturn = ((candle.close - entryPrice) / entryPrice) * positionWeight;
+            const markedEquity = equityBeforeTrade * (1 + markedReturn);
+            peakEquity = Math.max(peakEquity, markedEquity);
+            const lowReturn = ((candle.low - entryPrice) / entryPrice) * positionWeight;
+            const lowEquity = equityBeforeTrade * (1 + lowReturn);
+            maxDrawdown = Math.max(maxDrawdown, (peakEquity - lowEquity) / peakEquity * 100);
+
+            if (candle.open <= stopLoss || candle.low <= stopLoss) {
+                rawExitPrice = candle.open <= stopLoss ? candle.open : stopLoss;
                 exitIndex = index;
                 exitReason = 'STOP';
                 break;
             }
-            if (candle.high >= target) {
+            if (candle.open >= target || candle.high >= target) {
                 rawExitPrice = target;
                 exitIndex = index;
                 exitReason = 'TARGET';
@@ -75,7 +88,8 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
         const grossReturn = (exitPrice - entryPrice) / entryPrice;
         const netReturn = grossReturn - PAPER_FEE_RATE * 2 - PAPER_SELL_TAX_RATE;
         const netReturnPct = netReturn * 100;
-        equity *= 1 + netReturn;
+        const portfolioReturn = netReturn * positionWeight;
+        equity = equityBeforeTrade * (1 + portfolioReturn);
         peakEquity = Math.max(peakEquity, equity);
         maxDrawdown = Math.max(maxDrawdown, (peakEquity - equity) / peakEquity * 100);
 
@@ -88,6 +102,8 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
             exitPrice,
             exitReason,
             netReturnPct,
+            portfolioReturnPct: portfolioReturn * 100,
+            positionWeightPct: positionWeight * 100,
             score: result.score,
             strategies: result.strategies.map(strategy => strategy.type)
             ,marketRegime: regime?.type || 'NEUTRAL'
@@ -97,8 +113,8 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
 
     const wins = trades.filter(trade => trade.netReturnPct > 0);
     const losses = trades.filter(trade => trade.netReturnPct <= 0);
-    const grossProfit = wins.reduce((sum, trade) => sum + trade.netReturnPct, 0);
-    const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.netReturnPct, 0));
+    const grossProfit = wins.reduce((sum, trade) => sum + trade.portfolioReturnPct, 0);
+    const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.portfolioReturnPct, 0));
     return {
         trades,
         totalReturnPct: equity - 100,
@@ -117,7 +133,7 @@ function renderBacktestResult(symbol, result) {
     }
     const returnClass = result.totalReturnPct >= 0 ? 'text-green-400' : 'text-red-400';
     const factor = Number.isFinite(result.profitFactor) ? result.profitFactor.toFixed(2) : '∞';
-    const recentTrades = result.trades.slice(-5).reverse().map(trade => `<div class="flex justify-between border-t border-dark-border/50 py-1.5"><span>${trade.entryDate} → ${trade.exitDate} · ${trade.exitReason}<small class="block text-[9px] text-gray-600">${trade.score}đ · ${trade.strategies.join('/')}</small></span><b class="${trade.netReturnPct >= 0 ? 'text-green-400' : 'text-red-400'}">${trade.netReturnPct >= 0 ? '+' : ''}${trade.netReturnPct.toFixed(2)}%</b></div>`).join('');
+    const recentTrades = result.trades.slice(-5).reverse().map(trade => `<div class="flex justify-between border-t border-dark-border/50 py-1.5"><span>${trade.entryDate} → ${trade.exitDate} · ${trade.exitReason}<small class="block text-[9px] text-gray-600">${trade.score}đ · ${trade.strategies.join('/')} · tỷ trọng ${trade.positionWeightPct.toFixed(1)}%</small></span><b class="${trade.portfolioReturnPct >= 0 ? 'text-green-400' : 'text-red-400'}">${trade.portfolioReturnPct >= 0 ? '+' : ''}${trade.portfolioReturnPct.toFixed(2)}% tài khoản</b></div>`).join('');
     element.innerHTML = `
         <div class="grid grid-cols-2 gap-2">
             <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Lợi nhuận mô phỏng</div><b class="${returnClass}">${result.totalReturnPct >= 0 ? '+' : ''}${result.totalReturnPct.toFixed(2)}%</b></div>
@@ -125,7 +141,7 @@ function renderBacktestResult(symbol, result) {
             <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Drawdown lớn nhất</div><b class="text-red-400">-${result.maxDrawdown.toFixed(2)}%</b></div>
             <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Profit factor</div><b class="text-white">${factor}</b></div>
         </div>
-        <div class="mt-2 text-[10px] text-gray-500">Đã gồm phí, thuế và trượt giá. Kết quả quá khứ không đảm bảo hiệu quả tương lai.</div>
+        <div class="mt-2 text-[10px] text-gray-500">Mỗi lệnh rủi ro tối đa 1%, tỷ trọng tối đa 25%; đã gồm phí, thuế, trượt giá và gap qua stop. Kết quả quá khứ không đảm bảo hiệu quả tương lai.</div>
         <div class="mt-2">${recentTrades}</div>`;
 }
 

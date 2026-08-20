@@ -1,48 +1,37 @@
 // --- AI TRỢ LÝ PHÂN TÍCH TIN TỨC & SENTIMENT ---
 // Kiến trúc: TA-first AI (dùng chỉ báo kỹ thuật sẵn có) + News nếu lấy được
 
-// 1. Tải tin tức (thử nhiều CORS proxy, nếu fail thì bỏ qua nhẹ nhàng)
+// 1. Tải tin tức trực tiếp. Không chuyển dữ liệu qua CORS proxy công cộng.
 async function fetchStockNews(symbol, size = 5) {
     symbol = symbol.toUpperCase().trim();
     const targetUrl = `https://finfo-api.vndirect.com.vn/v4/news?q=code:${symbol}&size=${size}&sort=newsDate:desc`;
-    
-    const proxyUrls = [
-        `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
-    ];
-
-    for (const proxyUrl of proxyUrls) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        try {
-            const response = await fetch(proxyUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            if (!response.ok) continue;
-
-            const wrapper = await response.json();
-            // allorigins trả về { contents: "..." }
-            const raw = wrapper.contents ? JSON.parse(wrapper.contents) : wrapper;
-            const items = raw?.data || raw;
-
-            if (Array.isArray(items) && items.length > 0) {
-                const normalized = items.map(item => ({
-                    title: item.title || item.newsTitle || '',
-                    date: item.newsDate || item.createdDate || item.date,
-                    summary: item.summary || item.newsSummary || '',
-                    url: item.newsUrl || item.url || `https://cafef.vn/tim-kiem.chn?keywords=${symbol}`,
-                    source: 'VNDirect'
-                })).filter(n => n.title);
-                const seenTitles = new Set();
-                return normalized.filter(news => {
-                    const key = news.title.toLowerCase().replace(/\s+/g, ' ').trim();
-                    if (seenTitles.has(key)) return false;
-                    seenTitles.add(key);
-                    return true;
-                });
-            }
-        } catch (e) {
-            clearTimeout(timeoutId);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    try {
+        const response = await fetch(targetUrl, { signal: controller.signal, headers: { Accept: 'application/json' } });
+        if (!response.ok) return [];
+        const raw = await response.json();
+        const items = raw?.data || raw;
+        if (Array.isArray(items) && items.length > 0) {
+            const normalized = items.map(item => ({
+                title: item.title || item.newsTitle || '',
+                date: item.newsDate || item.createdDate || item.date,
+                summary: item.summary || item.newsSummary || '',
+                url: item.newsUrl || item.url || `https://cafef.vn/tim-kiem.chn?keywords=${symbol}`,
+                source: 'VNDirect'
+            })).filter(n => n.title);
+            const seenTitles = new Set();
+            return normalized.filter(news => {
+                const key = news.title.toLowerCase().replace(/\s+/g, ' ').trim();
+                if (seenTitles.has(key)) return false;
+                seenTitles.add(key);
+                return true;
+            });
         }
+    } catch (error) {
+        console.info(`Nguồn tin trực tiếp không khả dụng cho ${symbol}:`, error.message);
+    } finally {
+        clearTimeout(timeoutId);
     }
     return []; // trả về rỗng, sẽ dùng TA analysis
 }
@@ -168,22 +157,27 @@ async function analyzeNewsWithGemini(symbol, newsList, apiKey, taResult) {
     }
 
     const taContext = taResult ? `Điểm TA: ${taResult.score}/100, Tín hiệu: ${taResult.signal}, RSI: ${taResult.indicators?.rsi?.toFixed(1)}, Chiến lược: ${(taResult.strategies||[]).map(s=>s.label).join('|') || 'Không có'}` : '';
-    const newsText = newsList.length > 0
+    const hasNews = newsList.length > 0;
+    const newsText = hasNews
         ? newsList.map((n, i) => `${i+1}. [${n.date}] ${n.title}: ${n.summary}`).join("\n")
-        : "(Không có tin tức thời gian thực)";
+        : "Không có tin tức thời gian thực. Chỉ diễn giải dữ liệu kỹ thuật đã cung cấp, không được tạo sự kiện doanh nghiệp.";
 
-    const promptText = `Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã [${symbol}]:
+    const promptText = `Bạn là trợ lý đọc tin tức chứng khoán Việt Nam. Phân tích mã [${symbol}]:
 
 Chỉ báo kỹ thuật: ${taContext}
 Tin tức: ${newsText}
 
 Trả về JSON duy nhất, không markdown:
-Chỉ sử dụng dữ kiện xuất hiện trong phần Tin tức. Không tự suy diễn số liệu, không khẳng định chắc chắn giá sẽ tăng/giảm. Nêu rõ rủi ro và mức độ tin cậy.
+${hasNews
+    ? 'Chỉ sử dụng dữ kiện xuất hiện trong phần Tin tức và chỉ báo kỹ thuật. Không tự suy diễn số liệu hay sự kiện.'
+    : 'Chỉ diễn giải chỉ báo kỹ thuật. Phải nói rõ hiện không có dữ liệu tin tức và không được suy diễn sự kiện doanh nghiệp.'}
+Không khẳng định chắc chắn giá sẽ tăng/giảm. Nêu rõ rủi ro và nếu dữ kiện không đủ thì phải nói rõ.
 
-{"sentimentScore":10,"sentimentText":"TÍCH CỰC 🟢","sentimentClass":"bg-green-500/20 text-green-400 border-green-500/40","summary":"Phân tích ngắn gọn 1-2 câu","catalyst":"LOẠI SỰ KIỆN","risk":"Rủi ro quan trọng nhất","confidence":65}
+{"sentimentScore":10,"summary":"Phân tích ngắn gọn 1-2 câu","catalyst":"LOẠI SỰ KIỆN","risk":"Rủi ro quan trọng nhất"}
 
 sentimentScore: số nguyên -20 đến +20`;
 
+    const fallbackWithError = reason => ({ ...ruleBasedNewsAnalysis(symbol, newsList, taResult), aiUnavailableReason: reason });
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -193,36 +187,71 @@ sentimentScore: số nguyên -20 đến +20`;
             signal: controller.signal,
             body: JSON.stringify({
                 contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: { maxOutputTokens: 200, temperature: 0.1 }
+                generationConfig: {
+                    maxOutputTokens: 1024,
+                    temperature: 0.1,
+                    responseMimeType: 'application/json'
+                }
             })
         });
         clearTimeout(timeoutId);
 
-        if (response.status === 429 || response.status === 400 || response.status === 403) {
-            return ruleBasedNewsAnalysis(symbol, newsList, taResult);
+        if (!response.ok) {
+            let apiMessage = '';
+            try {
+                const errorBody = await response.json();
+                apiMessage = String(errorBody?.error?.message || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+            } catch (_) {}
+            if (response.status === 400 && /api key not valid/i.test(apiMessage)) return fallbackWithError('API key Gemini không hợp lệ.');
+            if (response.status === 400 && /failed_precondition|free tier|billing/i.test(apiMessage)) return fallbackWithError('Tài khoản Gemini cần bật thanh toán hoặc không hỗ trợ free tier tại khu vực hiện tại.');
+            if (response.status === 403) return fallbackWithError('API key không có quyền gọi Gemini hoặc đã bị chặn.');
+            if (response.status === 429) return fallbackWithError('Gemini đã hết hạn mức hoặc đang bị giới hạn tần suất.');
+            return fallbackWithError(`Gemini lỗi HTTP ${response.status}${apiMessage ? `: ${apiMessage}` : ''}`);
         }
 
-        if (response.ok) {
-            const data = await response.json();
-            const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const parsed = JSON.parse(rawText.replace(/```json/gi, '').replace(/```/g, '').trim());
-            return {
-                sentiment: parsed.sentimentScore >= 3 ? "POSITIVE" : (parsed.sentimentScore <= -3 ? "NEGATIVE" : "NEUTRAL"),
-                sentimentScore: Math.min(20, Math.max(-20, parseInt(parsed.sentimentScore) || 0)),
-                sentimentText: parsed.sentimentText || "TÍCH CỰC",
-                sentimentClass: parsed.sentimentClass || "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
-                summary: parsed.summary || "",
-                catalyst: parsed.catalyst || "PHÂN TÍCH KỸ THUẬT",
-                risk: parsed.risk || 'Cần kiểm tra lại thông tin từ nguồn công bố chính thức.',
-                confidence: Math.min(95, Math.max(0, parseInt(parsed.confidence) || 50)),
-                isAIGenerated: true
-            };
+        let data;
+        try {
+            data = await response.json();
+        } catch (_) {
+            return fallbackWithError('Gemini đã kết nối nhưng trả về dữ liệu HTTP không đọc được.');
         }
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (!rawText.trim()) {
+            const blockReason = data.candidates?.[0]?.finishReason;
+            return fallbackWithError(`Gemini không trả nội dung${blockReason ? ` (${blockReason})` : ''}.`);
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(rawText.replace(/```json/gi, '').replace(/```/g, '').trim());
+        } catch (_) {
+            return fallbackWithError('Gemini đã kết nối nhưng nội dung trả về không đúng định dạng JSON.');
+        }
+            const score = Math.min(20, Math.max(-20, parseInt(parsed.sentimentScore, 10) || 0));
+            const sentiment = score >= 3 ? 'POSITIVE' : (score <= -3 ? 'NEGATIVE' : 'NEUTRAL');
+            const presentation = sentiment === 'POSITIVE'
+                ? { text: score >= 8 ? 'RẤT TÍCH CỰC 🔥' : 'TÍCH CỰC 🟢', css: score >= 8 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-green-500/20 text-green-400 border-green-500/40' }
+                : sentiment === 'NEGATIVE'
+                    ? { text: score <= -8 ? 'RẤT TIÊU CỰC 🔻' : 'TIÊU CỰC ⚠️', css: score <= -8 ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-amber-500/20 text-amber-400 border-amber-500/40' }
+                    : { text: 'TRUNG TÍNH', css: 'bg-gray-500/20 text-gray-300 border-gray-500/40' };
+        return {
+                sentiment,
+                sentimentScore: score,
+                sentimentText: presentation.text,
+                sentimentClass: presentation.css,
+                summary: String(parsed.summary || '').slice(0, 600),
+                catalyst: String(parsed.catalyst || 'TIN TỨC DOANH NGHIỆP').slice(0, 120),
+                risk: String(parsed.risk || 'Cần kiểm tra lại thông tin từ nguồn công bố chính thức.').slice(0, 400),
+                isAIGenerated: true
+        };
     } catch (err) {
         console.warn(`Gemini API error:`, err.message);
+        const reason = err?.name === 'AbortError'
+            ? 'Gemini phản hồi quá chậm và đã hết thời gian chờ.'
+            : (window.location.protocol === 'file:'
+                ? 'Không thể kết nối Gemini khi ứng dụng đang mở bằng file://. Hãy chạy trang qua http://localhost để trình duyệt xử lý CORS đúng cách.'
+                : `Không kết nối được Gemini do CORS hoặc mạng${err?.message ? `: ${String(err.message).slice(0, 120)}` : ''}.`);
+        return fallbackWithError(reason);
     }
-
-    return ruleBasedNewsAnalysis(symbol, newsList, taResult);
 }
 
 // 5. Entry point – nhận thêm taResult từ evaluateStock
@@ -240,7 +269,7 @@ async function getAINewsAnalysis(symbol, taResult = null) {
     } catch (_) {}
 
     const newsList = await fetchStockNews(symbol, 5);
-    const geminiKey = localStorage.getItem('geminiApiKey') || '';
+    const geminiKey = sessionStorage.getItem('geminiApiKey') || '';
 
     let analysis;
     if (geminiKey && geminiKey.trim().length >= 20 && !geminiKey.includes(' ')) {
@@ -252,7 +281,10 @@ async function getAINewsAnalysis(symbol, taResult = null) {
         analysis = taBasedAnalysis(symbol, taResult);
     }
 
-    const result = { newsList, analysis };
+    const validNewsDates = newsList.map(item => new Date(item.date).getTime()).filter(Number.isFinite);
+    const newestAgeDays = validNewsDates.length ? (Date.now() - Math.max(...validNewsDates)) / 86400000 : Infinity;
+    const evidenceLevel = newsList.length >= 3 && newestAgeDays <= 7 ? 'CAO' : (newsList.length > 0 && newestAgeDays <= 30 ? 'TRUNG BÌNH' : 'THẤP');
+    const result = { newsList, analysis: { ...analysis, evidenceLevel } };
     try { sessionStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result })); } catch (_) {}
     return result;
 }

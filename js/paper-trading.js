@@ -7,6 +7,7 @@ let paperOrderSide = 'BUY';
 let paperReferencePrice = 0;
 
 const paperCurrency = value => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value);
+const paperPrice = value => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value);
 
 async function paperDbAction(storeNames, mode, callback) {
     const db = await openSignalDB();
@@ -49,10 +50,31 @@ async function getPaperTrades() {
     return trades.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-async function getPaperPrice(symbol) {
+async function getPaperEstimatedEquity(account) {
+    const positions = Object.values(account.positions || {});
+    const values = await Promise.all(positions.map(async position => {
+        try {
+            return (await getPaperPrice(position.symbol)) * position.volume;
+        } catch (_) {
+            return position.avgPrice * position.volume;
+        }
+    }));
+    return account.cash + values.reduce((sum, value) => sum + value, 0);
+}
+
+async function getPaperQuote(symbol) {
     const candles = await fetchStockHistory(symbol, 10);
     if (!candles?.length) throw new Error(`Không lấy được giá ${symbol}.`);
-    return candles[candles.length - 1].close * 1000;
+    const latestClose = candles[candles.length - 1].close;
+    const previousClose = candles.length > 1 ? candles[candles.length - 2].close : null;
+    return {
+        price: latestClose * 1000,
+        dailyChangePercent: previousClose > 0 ? (latestClose - previousClose) / previousClose * 100 : null
+    };
+}
+
+async function getPaperPrice(symbol) {
+    return (await getPaperQuote(symbol)).price;
 }
 
 async function executePaperOrder(symbol, side, volume) {
@@ -73,7 +95,8 @@ async function executePaperOrder(symbol, side, volume) {
         const totalCost = grossValue + fee;
         if (account.cash < totalCost) throw new Error(`Không đủ tiền mặt. Cần ${paperCurrency(totalCost)}.`);
         const existingCost = current.avgPrice * current.volume;
-        const projectedWeight = (existingCost + totalCost) / account.initialCash * 100;
+        const currentEquity = await getPaperEstimatedEquity(account);
+        const projectedWeight = currentEquity > 0 ? (existingCost + totalCost) / currentEquity * 100 : 100;
         if (projectedWeight > 30) throw new Error(`Lệnh khiến ${symbol} vượt 30% vốn ban đầu (${projectedWeight.toFixed(1)}%). Hãy giảm số lượng.`);
         const newVolume = current.volume + volume;
         current.avgPrice = (current.avgPrice * current.volume + grossValue + fee) / newVolume;
@@ -115,7 +138,12 @@ async function renderPaperTrading() {
 
     for (const position of positions) {
         let price = position.avgPrice;
-        try { price = await getPaperPrice(position.symbol); } catch (_) {}
+        let dailyChangePercent = null;
+        try {
+            const quote = await getPaperQuote(position.symbol);
+            price = quote.price;
+            dailyChangePercent = quote.dailyChangePercent;
+        } catch (_) {}
         const value = price * position.volume;
         const cost = position.avgPrice * position.volume;
         const pl = value - cost;
@@ -128,8 +156,10 @@ async function renderPaperTrading() {
         marketValue += value;
         const provisionalAssets = account.cash + Object.values(account.positions || {}).reduce((sum, item) => sum + item.avgPrice * item.volume, 0);
         const positionWeight = provisionalAssets ? value / provisionalAssets * 100 : 0;
+        const dailyChangeClass = dailyChangePercent == null ? 'text-gray-500' : (dailyChangePercent >= 0 ? 'text-brand-up' : 'text-brand-down');
+        const dailyChangeText = dailyChangePercent == null ? '---' : `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%`;
         positionHtml += `<div class="bg-dark-card border border-dark-border rounded-xl p-3">
-            <div class="flex justify-between"><div><div class="flex items-center gap-2"><b class="text-white text-lg">${position.symbol}</b>${planStatus}</div><div class="text-[10px] text-gray-500">${position.volume} CP · Giá vốn ${paperCurrency(position.avgPrice)}</div></div><div class="text-right"><b class="text-white">${paperCurrency(value)}</b><div class="text-xs ${pl >= 0 ? 'text-green-400' : 'text-red-400'}">${pl >= 0 ? '+' : ''}${paperCurrency(pl)} (${plPercent.toFixed(2)}%)</div></div></div>
+            <div class="flex justify-between"><div class="min-w-0"><div class="flex items-center gap-2"><b class="text-white text-lg">${position.symbol}</b>${planStatus}</div><div class="text-[10px] text-gray-500">${position.volume} CP · Giá vốn ${paperCurrency(position.avgPrice)}</div><div class="paper-live-price text-xs mt-1 flex items-center gap-3 whitespace-nowrap"><span class="text-gray-500">Giá hiện tại: <b class="text-white">${paperPrice(price)}</b></span><span class="${dailyChangeClass} flex-shrink-0">Hôm nay: <b>${dailyChangeText}</b></span></div></div><div class="text-right flex-shrink-0"><b class="text-white">${paperCurrency(value)}</b><div class="text-xs ${pl >= 0 ? 'text-green-400' : 'text-red-400'}">${pl >= 0 ? '+' : ''}${paperCurrency(pl)} (${plPercent.toFixed(2)}%)</div></div></div>
             ${(position.stopLoss || position.target) ? `<div class="text-[10px] text-gray-500 mt-2">Dừng lỗ: <span class="text-red-400">${paperCurrency(position.stopLoss || 0)}</span> · Mục tiêu: <span class="text-green-400">${paperCurrency(position.target || 0)}</span></div>` : ''}
             <div class="text-[10px] mt-1 ${positionWeight > maxPositionWeight ? 'text-amber-400' : 'text-gray-500'}">Tỷ trọng ước tính: ${positionWeight.toFixed(1)}%${positionWeight > maxPositionWeight ? ' · Tập trung cao' : ''}</div>
             <button onclick="openPaperOrder('${position.symbol}','SELL')" class="mt-2 text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1.5">Bán thử</button>
@@ -180,11 +210,12 @@ async function applyPaperRiskSizing() {
     }
     try {
         const [account, price] = await Promise.all([getPaperAccount(), getPaperPrice(symbol)]);
+        const currentEquity = await getPaperEstimatedEquity(account);
         const riskPercent = Number(document.getElementById('paper-risk-percent').value) / 100;
         const scanResult = typeof scannedResults !== 'undefined' ? scannedResults.find(item => item.symbol === symbol) : null;
         const stopLoss = scanResult?.tradePlan?.stopLoss ? scanResult.tradePlan.stopLoss * 1000 : price * 0.95;
         const perShareRisk = Math.max(price - stopLoss, price * 0.01);
-        const riskBudget = account.initialCash * riskPercent;
+        const riskBudget = currentEquity * riskPercent;
         const riskVolume = Math.floor(riskBudget / perShareRisk / 100) * 100;
         const cashVolume = Math.floor(account.cash / (price * (1 + PAPER_SLIPPAGE_RATE + PAPER_FEE_RATE)) / 100) * 100;
         const volume = Math.max(0, Math.min(riskVolume, cashVolume));

@@ -5,6 +5,7 @@ let vnindexChartInstance = null;
 let scannedResults = []; // Cache for scanner
 let currentMarketRegime = null;
 let marketBenchmarkCandles = [];
+let analysisViewRequestId = 0;
 
 // Format functions
 const fmtPrice = (val) => new Intl.NumberFormat('vi-VN').format(val * 1000);
@@ -97,11 +98,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const updateKeyStatusBadge = () => {
         const statusEl = document.getElementById('ai-key-status');
         if (!statusEl) return;
-        const savedKey = localStorage.getItem('geminiApiKey') || '';
+        const savedKey = sessionStorage.getItem('geminiApiKey') || '';
         const isValidKey = savedKey.length >= 20 && !savedKey.includes(' ');
         if (isValidKey) {
             statusEl.className = 'mb-3 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-green-500/10 text-green-400 border border-green-500/30';
-            statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Gemini AI đã kích hoạt — Phân tích thông minh đang hoạt động';
+            statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Đã lưu Key trong tab — Gemini sẽ được kiểm tra khi phân tích mã';
         } else {
             statusEl.className = 'mb-3 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-amber-500/10 text-amber-400 border border-amber-500/30';
             statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Chưa có Key — Đang dùng bộ phân tích TA nội bộ';
@@ -110,8 +111,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const openSettings = () => {
-        if (keyInput) keyInput.value = localStorage.getItem('geminiApiKey') || '';
+        if (keyInput) keyInput.value = sessionStorage.getItem('geminiApiKey') || '';
         updateKeyStatusBadge();
+        if (window.location.protocol === 'file:') {
+            const statusEl = document.getElementById('ai-key-status');
+            statusEl.className = 'mb-3 px-3 py-2 rounded-lg text-xs font-semibold flex items-start gap-1.5 bg-amber-500/10 text-amber-300 border border-amber-500/30';
+            statusEl.innerHTML = '<i class="fas fa-triangle-exclamation mt-0.5"></i><span>Trang đang mở bằng <b>file://</b>. Gemini có thể bị CORS chặn; nên chạy ứng dụng qua <b>http://localhost</b>.</span>';
+        }
         modalSettings?.classList.remove('hidden');
     };
 
@@ -152,9 +158,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         Object.keys(sessionStorage).filter(k => k.startsWith('ai_news_')).forEach(k => sessionStorage.removeItem(k));
 
         if (val) {
-            localStorage.setItem('geminiApiKey', val);
+            sessionStorage.setItem('geminiApiKey', val);
         } else {
-            localStorage.removeItem('geminiApiKey');
+            sessionStorage.removeItem('geminiApiKey');
         }
         updateKeyStatusBadge();
         modalSettings?.classList.add('hidden');
@@ -168,7 +174,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('btn-clear-gemini-key')?.addEventListener('click', () => {
-        localStorage.removeItem('geminiApiKey');
+        sessionStorage.removeItem('geminiApiKey');
         if (keyInput) keyInput.value = '';
         Object.keys(sessionStorage).filter(k => k.startsWith('ai_news_')).forEach(k => sessionStorage.removeItem(k));
         updateKeyStatusBadge();
@@ -176,7 +182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Auto-open Settings nếu chưa từng nhập Key (lần đầu dùng app)
-    if (!localStorage.getItem('geminiApiKey') && !localStorage.getItem('ai_setup_done')) {
+    // Không giữ API key lâu dài trong localStorage; xóa dữ liệu từ phiên bản cũ nếu có.
+    localStorage.removeItem('geminiApiKey');
+    if (!sessionStorage.getItem('geminiApiKey') && !localStorage.getItem('ai_setup_done')) {
         setTimeout(() => {
             localStorage.setItem('ai_setup_done', '1');
             openSettings();
@@ -482,6 +490,7 @@ function renderScannerResults() {
 
 // Chart Analysis
 async function analyzeSymbol(symbol) {
+    const requestId = ++analysisViewRequestId;
     symbol = symbol.toUpperCase().trim();
     document.getElementById('search-symbol').value = symbol;
     
@@ -494,6 +503,7 @@ async function analyzeSymbol(symbol) {
     document.getElementById('detail-symbol').textContent = 'Đang tải...';
     
     const candles = await fetchStockHistory(symbol, 100);
+    if (requestId !== analysisViewRequestId) return;
     if (!candles || candles.length === 0) {
         document.getElementById('detail-symbol').textContent = 'Không tìm thấy mã';
         return;
@@ -572,6 +582,7 @@ async function analyzeSymbol(symbol) {
     if (aiNewsEl) {
         aiNewsEl.innerHTML = '<div class="text-center text-gray-500 py-3 text-xs"><i class="fas fa-spinner fa-spin mr-1 text-purple-400"></i> AI đang phân tích...</div>';
         getAINewsAnalysis(symbol, result).then(({ newsList, analysis }) => {
+            if (requestId !== analysisViewRequestId || document.getElementById('detail-symbol')?.textContent !== symbol) return;
             let newsItemsHtml = '';
             if (newsList && newsList.length > 0) {
                 newsItemsHtml = newsList.slice(0, 3).map(n => `
@@ -587,8 +598,10 @@ async function analyzeSymbol(symbol) {
             }
 
             // Quyết định label nguồn phân tích
-            const sourceLabel = analysis.isAIGenerated 
-                ? '<span class="text-[9px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/30">✨ Gemini AI</span>'
+            const sourceLabel = analysis.isAIGenerated
+                ? `<span class="text-[9px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/30">✨ Gemini AI${newsList.length ? ' · Tin tức' : ' · Kỹ thuật'}</span>`
+                : analysis.aiUnavailableReason
+                    ? '<span class="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">⚠ Gemini lỗi · Đang dự phòng</span>'
                 : newsList.length > 0
                     ? '<span class="text-[9px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">📰 NLP Tin tức</span>'
                     : '<span class="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">📊 Phân tích TA</span>';
@@ -623,12 +636,18 @@ async function analyzeSymbol(symbol) {
                     </div>${officialSources}`;
             }
 
+            const safeSentimentMap = {
+                POSITIVE: 'bg-green-500/20 text-green-400 border-green-500/40',
+                NEGATIVE: 'bg-red-500/20 text-red-400 border-red-500/40',
+                NEUTRAL: 'bg-gray-500/20 text-gray-300 border-gray-500/40'
+            };
+            const safeSentimentClass = safeSentimentMap[analysis.sentiment] || safeSentimentMap.NEUTRAL;
             aiNewsEl.innerHTML = `
                 <div class="bg-[#0B0E14] border border-dark-border rounded-xl p-3 space-y-2.5">
                     <div class="flex justify-between items-center">
                         <span class="font-bold text-gray-300 text-xs">Tín Hiệu Đánh Giá:</span>
-                        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold border ${analysis.sentimentClass}">
-                            ${analysis.sentimentText} (${analysis.sentimentScore > 0 ? '+' : ''}${analysis.sentimentScore})
+                        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold border ${safeSentimentClass}">
+                            ${escapeHtml(analysis.sentimentText)} (${analysis.sentimentScore > 0 ? '+' : ''}${analysis.sentimentScore})
                         </span>
                     </div>
                     <div class="text-xs text-gray-300 leading-relaxed bg-dark-card/50 p-2.5 rounded-lg border border-dark-border/60">
@@ -638,7 +657,8 @@ async function analyzeSymbol(symbol) {
                         </div>
                         <div class="text-gray-300">${escapeHtml(analysis.summary)}</div>
                         <div class="mt-2 pt-2 border-t border-dark-border/50 text-amber-300/90"><b>Rủi ro:</b> ${escapeHtml(analysis.risk || 'Cần kiểm tra thông tin và quản trị điểm dừng lỗ.')}</div>
-                        <div class="text-[10px] text-gray-500 mt-1">Độ tin cậy phân tích: ${analysis.confidence ?? 50}%</div>
+                        ${analysis.aiUnavailableReason ? `<div class="mt-1 text-[10px] text-amber-400">${escapeHtml(analysis.aiUnavailableReason)}</div>` : ''}
+                        <div class="text-[10px] text-gray-500 mt-1">Mức dữ liệu tham khảo: ${escapeHtml(analysis.evidenceLevel || 'THẤP')}</div>
                     </div>
                     <div>
                         <div class="text-[11px] font-semibold text-gray-400 mb-1.5">
@@ -649,6 +669,7 @@ async function analyzeSymbol(symbol) {
                 </div>
             `;
         }).catch(err => {
+            if (requestId !== analysisViewRequestId) return;
             console.warn("⚠️ AI News rendering error:", err);
             aiNewsEl.innerHTML = '<div class="text-gray-500 text-xs py-2">Không thể tải phân tích AI.</div>';
         });
