@@ -29,7 +29,12 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
             || (strategyFilter === 'TREND' && strategyTypes.includes('LEADER'))
             || (strategyFilter === 'BREAKOUT' && (strategyTypes.includes('MONEY_FLOW') || strategyTypes.includes('BB_BREAKOUT')))
             || (strategyFilter === 'BOTTOM' && strategyTypes.includes('BOTTOM'));
-        const hasSetup = result && marketAllowsTrade && matchesStrategy && result.signal === 'STRONG_BUY' && result.score >= 82 && result.strategies.length > 0;
+        const isBottomProbe = strategyFilter === 'BOTTOM'
+            && isBottom
+            && (result?.signal === 'BUY' || result?.signal === 'STRONG_BUY')
+            && result.score >= 66;
+        const hasSetup = result && marketAllowsTrade && matchesStrategy && result.strategies.length > 0
+            && ((result.signal === 'STRONG_BUY' && result.score >= 82) || isBottomProbe);
         if (!hasSetup) continue;
 
         let entryIndex = -1;
@@ -52,6 +57,9 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
         const entryPrice = rawEntryPrice * (1 + PAPER_SLIPPAGE_RATE);
         const stopLoss = result.tradePlan.stopLoss;
         const target = result.tradePlan.target1;
+        const initialRisk = Math.max(entryPrice - stopLoss, entryPrice * 0.01);
+        let activeStop = stopLoss;
+        let breakevenArmed = false;
         const stopRiskFraction = Math.max((entryPrice - stopLoss) / entryPrice, 0.01);
         const positionWeight = Math.min(maxPositionWeight, riskBudgetFraction / stopRiskFraction);
         const equityBeforeTrade = equity;
@@ -70,10 +78,10 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
             const lowEquity = equityBeforeTrade * (1 + lowReturn);
             maxDrawdown = Math.max(maxDrawdown, (peakEquity - lowEquity) / peakEquity * 100);
 
-            if (candle.open <= stopLoss || candle.low <= stopLoss) {
-                rawExitPrice = candle.open <= stopLoss ? candle.open : stopLoss;
+            if (candle.open <= activeStop || candle.low <= activeStop) {
+                rawExitPrice = candle.open <= activeStop ? candle.open : activeStop;
                 exitIndex = index;
-                exitReason = 'STOP';
+                exitReason = breakevenArmed ? 'BREAKEVEN' : 'STOP';
                 break;
             }
             if (candle.open >= target || candle.high >= target) {
@@ -81,6 +89,12 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
                 exitIndex = index;
                 exitReason = 'TARGET';
                 break;
+            }
+            // Chỉ dời stop từ phiên kế tiếp sau khi giá đã đi được ít nhất 1R,
+            // tránh giả định sai thứ tự high/low trong cùng một nến ngày.
+            if (!breakevenArmed && candle.high >= entryPrice + initialRisk) {
+                activeStop = entryPrice;
+                breakevenArmed = true;
             }
         }
 

@@ -435,7 +435,21 @@ function evaluateStock(symbol, candles, vpsInfo = null, marketRegime = null, ben
     let signalText = "GIỮ";
     let signalClass = "bg-signal-hold";
 
-    if (score >= 82 && strategies.length > 0 && !isOverextended) {
+    const hasLeaderSetup = strategies.some(strategy => strategy.type === 'LEADER');
+    const hasBottomSetup = strategies.some(strategy => strategy.type === 'BOTTOM');
+    const breakoutQualityConfirmed = hasMomentumSetup
+        && momentumTrendConfirmed
+        && relativeStrength20 >= 3
+        && volPercent >= 120
+        && volPercent <= 220;
+    const leaderQualityConfirmed = hasLeaderSetup
+        && momentumTrendConfirmed
+        && relativeStrength20 >= 3
+        && volPercent >= 80;
+    const marketSupportsStrongBuy = !marketRegime || marketRegime.type === 'BULL' || hasBottomSetup;
+    const strongBuyQuality = marketSupportsStrongBuy && (leaderQualityConfirmed || hasBottomSetup || breakoutQualityConfirmed);
+
+    if (score >= 82 && strongBuyQuality && !isOverextended) {
         signal = "STRONG_BUY"; signalText = "CƠ HỘI MẠNH"; signalClass = "bg-signal-buy";
     } else if (score >= 66 && strategies.length > 0 && !isOverextended) {
         signal = "BUY"; signalText = "THEO DÕI MUA"; signalClass = "bg-signal-buy";

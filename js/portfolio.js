@@ -175,6 +175,8 @@ async function renderPortfolio() {
         const colorClass = isUp ? 'text-brand-up' : 'text-brand-down';
         const isDailyUp = dailyChangePercent != null && dailyChangePercent >= 0;
         const dailyColorClass = dailyChangePercent == null ? 'text-gray-500' : (isDailyUp ? 'text-brand-up' : 'text-brand-down');
+        const suggestedStop = evalResult?.tradePlan?.stopLoss ? evalResult.tradePlan.stopLoss * 1000 : null;
+        const suggestedTarget = evalResult?.tradePlan?.target1 ? evalResult.tradePlan.target1 * 1000 : null;
 
         // 🧠 TẠO GỢI Ý THÔNG MINH CHO TỪNG MÃ (SMART ADVISOR ADVICE)
         let adviceTag = '';
@@ -230,6 +232,16 @@ async function renderPortfolio() {
                         </div>
                     </div>
                 </div>
+
+                ${(suggestedStop && suggestedTarget) ? `
+                    <div>
+                        <div class="portfolio-trade-levels grid grid-cols-2 gap-2 text-[10px]">
+                            <div class="rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1.5 text-gray-500">Dừng lỗ gợi ý <b class="text-red-400 text-xs float-right">${formatNumber(suggestedStop)}</b></div>
+                            <div class="rounded-md bg-green-500/10 border border-green-500/20 px-2 py-1.5 text-gray-500">Mục tiêu gợi ý <b class="text-green-400 text-xs float-right">${formatNumber(suggestedTarget)}</b></div>
+                        </div>
+                        <div class="text-[9px] text-gray-600 mt-1">Mức kỹ thuật tham khảo, cần điều chỉnh theo khẩu vị rủi ro.</div>
+                    </div>
+                ` : ''}
 
                 ${strategyBadges ? `<div class="flex flex-wrap gap-1">${strategyBadges}</div>` : ''}
 
