@@ -6,6 +6,7 @@ const formatNumber = (value) => new Intl.NumberFormat('vi-VN').format(value);
 
 let portfolio = JSON.parse(localStorage.getItem('vnStockPortfolio')) || [];
 let editingIndex = null; // null: Thêm mới, number: Đang chỉnh sửa vị trí index
+let portfolioRenderRequestId = 0;
 
 function savePortfolio() {
     localStorage.setItem('vnStockPortfolio', JSON.stringify(portfolio));
@@ -32,7 +33,7 @@ async function exportLocalData() {
     ]);
     const backup = {
         app: 'vn-stock-advisor',
-        schemaVersion: 2,
+        schemaVersion: 3,
         exportedAt: new Date().toISOString(),
         portfolio,
         signals,
@@ -59,7 +60,10 @@ async function importLocalData(file) {
     const cleanPortfolio = backup.portfolio.map(item => ({
         symbol: String(item.symbol || '').toUpperCase().trim(),
         buyPrice: Number(item.buyPrice),
-        volume: Number(item.volume)
+        volume: Number(item.volume),
+        stopLoss: Number(item.stopLoss) > 0 ? Number(item.stopLoss) : null,
+        initialStopLoss: Number(item.initialStopLoss) > 0 ? Number(item.initialStopLoss) : null,
+        target: Number(item.target) > 0 ? Number(item.target) : null
     })).filter(item => /^[A-Z0-9]{2,10}$/.test(item.symbol) && item.buyPrice > 0 && item.volume > 0);
 
     if (cleanPortfolio.length !== backup.portfolio.length) {
@@ -88,7 +92,7 @@ async function importLocalData(file) {
     if (typeof renderSignalHistoryStats === 'function') await renderSignalHistoryStats();
 }
 
-function addStockToPortfolio(symbol, buyPrice, volume) {
+function addStockToPortfolio(symbol, buyPrice, volume, stopLoss = null, target = null) {
     symbol = symbol.toUpperCase().trim();
     const existingIndex = portfolio.findIndex(p => p.symbol === symbol);
     if (existingIndex >= 0) {
@@ -98,7 +102,7 @@ function addStockToPortfolio(symbol, buyPrice, volume) {
         existing.volume += volume;
         existing.buyPrice = totalCost / existing.volume;
     } else {
-        portfolio.push({ symbol, buyPrice, volume });
+        portfolio.push({ symbol, buyPrice, volume, stopLoss, initialStopLoss: stopLoss, target });
     }
     savePortfolio();
     renderPortfolio();
@@ -121,10 +125,13 @@ function openEditModal(index) {
     symbolInput.disabled = true; // Không sửa tên mã khi đang chỉnh sửa
     document.getElementById('port-price').value = item.buyPrice;
     document.getElementById('port-vol').value = item.volume;
+    document.getElementById('port-stop').value = item.stopLoss || '';
+    document.getElementById('port-target').value = item.target || '';
     document.getElementById('modal-portfolio').classList.remove('hidden');
 }
 
 async function renderPortfolio() {
+    const requestId = ++portfolioRenderRequestId;
     const listEl = document.getElementById('portfolio-list');
     const totalEl = document.getElementById('portfolio-total');
     const plEl = document.getElementById('portfolio-pl');
@@ -144,11 +151,15 @@ async function renderPortfolio() {
     let totalCurrentValue = 0;
     let totalInvestedValue = 0;
     let html = '';
+    let portfolioPlanChanged = false;
+    const portfolioHistories = await Promise.all(portfolio.map(item =>
+        fetchStockHistory(item.symbol, 60).catch(() => null)
+    ));
+    if (requestId !== portfolioRenderRequestId) return;
 
     for (let idx = 0; idx < portfolio.length; idx++) {
         const item = portfolio[idx];
-        // Lấy lịch sử 60 phiên để phân tích kỹ thuật
-        const candles = await fetchStockHistory(item.symbol, 60);
+        const candles = portfolioHistories[idx];
         let currentPrice = item.buyPrice; // fallback
         let dailyChangePercent = null;
         let evalResult = null;
@@ -175,8 +186,40 @@ async function renderPortfolio() {
         const colorClass = isUp ? 'text-brand-up' : 'text-brand-down';
         const isDailyUp = dailyChangePercent != null && dailyChangePercent >= 0;
         const dailyColorClass = dailyChangePercent == null ? 'text-gray-500' : (isDailyUp ? 'text-brand-up' : 'text-brand-down');
-        const suggestedStop = evalResult?.tradePlan?.stopLoss ? evalResult.tradePlan.stopLoss * 1000 : null;
-        const suggestedTarget = evalResult?.tradePlan?.target1 ? evalResult.tradePlan.target1 * 1000 : null;
+        const technicalStop = evalResult?.tradePlan?.stopLoss ? evalResult.tradePlan.stopLoss * 1000 : null;
+        const technicalTarget = evalResult?.tradePlan?.target1 ? evalResult.tradePlan.target1 * 1000 : null;
+        if (!item.stopLoss && technicalStop) {
+            item.stopLoss = technicalStop;
+            item.initialStopLoss = technicalStop;
+            portfolioPlanChanged = true;
+        } else if (item.stopLoss && technicalStop && technicalStop > item.stopLoss && currentPrice > item.stopLoss) {
+            item.stopLoss = Math.min(technicalStop, currentPrice * 0.995);
+            portfolioPlanChanged = true;
+        }
+        if (!item.initialStopLoss && item.stopLoss) {
+            item.initialStopLoss = item.stopLoss;
+            portfolioPlanChanged = true;
+        }
+        if (!item.target && technicalTarget) {
+            item.target = technicalTarget;
+            portfolioPlanChanged = true;
+        }
+        let suggestedStop = item.stopLoss || null;
+        const suggestedTarget = item.target || null;
+        const stopBreached = Boolean(suggestedStop && currentPrice <= suggestedStop);
+        const initialRisk = item.initialStopLoss ? Math.max(item.buyPrice - item.initialStopLoss, item.buyPrice * 0.01) : null;
+        const profitR = initialRisk ? (currentPrice - item.buyPrice) / initialRisk : null;
+        if (!stopBreached && profitR >= 1 && item.stopLoss < item.buyPrice) {
+            item.stopLoss = item.buyPrice;
+            suggestedStop = item.stopLoss;
+            portfolioPlanChanged = true;
+        }
+        const isExitSignal = evalResult?.signal === 'SELL' || evalResult?.signal === 'STRONG_SELL';
+        const portfolioBadgeText = stopBreached ? 'VI PHẠM STOP' : evalResult?.signalText;
+        const portfolioBadgeClass = stopBreached ? 'bg-signal-sell' : evalResult?.signalClass;
+        const portfolioBadgeMetric = stopBreached
+            ? 'ƯU TIÊN XỬ LÝ'
+            : (isExitSignal ? `RR ${evalResult.exitRisk?.score || 0}` : `${evalResult?.score || 0}Đ`);
 
         // 🧠 TẠO GỢI Ý THÔNG MINH CHO TỪNG MÃ (SMART ADVISOR ADVICE)
         let adviceTag = '';
@@ -187,92 +230,89 @@ async function renderPortfolio() {
             const score = evalResult.score;
             const signal = evalResult.signal;
 
-            if (isUp && (signal === 'SELL' || signal === 'STRONG_SELL' || (evalResult.indicators.rsi && evalResult.indicators.rsi > 70))) {
+            if (stopBreached) {
+                adviceTag = '🛑 VI PHẠM DỪNG LỖ';
+                adviceClass = 'bg-red-500/20 text-red-400 border-red-500/50';
+                adviceText = `Giá hiện tại đã xuống dưới mức dừng lỗ <b>${formatNumber(suggestedStop)}</b>. Không tự hạ stop; cân nhắc thoát hoặc giảm vị thế theo kế hoạch.`;
+            } else if (isUp && (signal === 'SELL' || signal === 'STRONG_SELL' || (evalResult.indicators.rsi && evalResult.indicators.rsi > 70))) {
                 adviceTag = '💡 CÂN NHẮC CHỐT LỜI';
                 adviceClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
                 adviceText = `Đang lãi <b>+${plPercent.toFixed(1)}%</b>, chỉ báo chạm vùng quá mua/suy yếu. Khuyên chốt lời/hạ tỷ trọng bảo vệ thành quả.`;
-            } else if (!isUp && (signal === 'STRONG_SELL' || score < 42)) {
-                adviceTag = '⚠️ CẢNH BÁO CẮT LỖ';
+            } else if (!isUp && (signal === 'SELL' || signal === 'STRONG_SELL')) {
+                adviceTag = '⚠️ RỦI RO THOÁT VỊ THẾ';
                 adviceClass = 'bg-red-500/20 text-red-400 border-red-500/40';
-                adviceText = `Đang lỗ <b>${plPercent.toFixed(1)}%</b> và xu hướng vi phạm vùng hỗ trợ (${score}Đ). Khuyên hạ tỷ trọng cắt lỗ bảo vệ vốn.`;
+                adviceText = `Đang lỗ <b>${plPercent.toFixed(1)}%</b>, điểm rủi ro thoát vị thế <b>${evalResult.exitRisk?.score || 0}/100</b>. Theo dõi stop và cân nhắc hạ tỷ trọng nếu xu hướng tiếp tục xấu.`;
             } else if (signal === 'STRONG_BUY' || signal === 'BUY') {
-                adviceTag = '🚀 THEO DÕI GIA TĂNG';
+                adviceTag = '📈 TÍN HIỆU CÒN TÍCH CỰC';
                 adviceClass = 'bg-blue-500/20 text-blue-400 border-blue-500/40';
-                adviceText = `Tín hiệu kỹ thuật tích cực (${score}Đ). Chỉ cân nhắc gia tăng ở vùng vào hợp lý và trong giới hạn rủi ro danh mục.`;
+                const inEntryZone = currentPrice >= evalResult.tradePlan.entryLow * 1000 && currentPrice <= evalResult.tradePlan.entryHigh * 1000;
+                adviceText = `Điểm cơ hội <b>${score}/100</b>. ${inEntryZone ? 'Giá đang trong vùng vào tham khảo' : 'Giá hiện không nằm trong vùng vào tham khảo'}; không tự động gia tăng nếu chưa kiểm tra tỷ trọng và tổng rủi ro danh mục.`;
             } else {
-                adviceTag = '🔒 TIẾP TỤC NẮM GIỮ';
+                adviceTag = evalResult.signalText === 'CHƯA HẤP DẪN' ? '👀 GIỮ CÓ ĐIỀU KIỆN' : '🔒 CHƯA CẦN HÀNH ĐỘNG';
                 adviceClass = 'bg-gray-500/20 text-gray-300 border-gray-500/40';
-                adviceText = `Xu hướng đi ngang/ổn định (${score}Đ). Tiếp tục nắm giữ quan sát mốc hỗ trợ.`;
+                adviceText = `${evalResult.signalText === 'CHƯA HẤP DẪN' ? 'Điểm cơ hội hiện thấp, nhưng chưa có đủ xác nhận bán.' : 'Tín hiệu hiện ở trạng thái trung tính/chờ xác nhận.'} Tiếp tục quản trị theo mức dừng lỗ ${suggestedStop ? `<b>${formatNumber(suggestedStop)}</b>` : 'đã đặt'}.`;
             }
         }
 
-        const strategyBadges = (evalResult?.strategies || []).map(s =>
+        const strategyBadges = (!stopBreached && !isExitSignal ? (evalResult?.strategies || []) : []).map(s =>
             `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${s.badgeClass}">${s.label}</span>`
         ).join(' ');
 
         html += `
-            <div class="bg-dark-card border border-dark-border rounded-xl p-4 space-y-3">
-                <!-- Hàng 1: Mã, Số lượng & Lãi/Lỗ -->
-                <div class="flex justify-between items-start">
-                    <div>
+            <div class="bg-dark-card border border-dark-border rounded-xl p-3 space-y-2.5">
+                <div class="flex justify-between items-start gap-3">
+                    <div class="min-w-0">
                         <div class="flex items-center gap-2">
-                            <h4 class="font-bold text-white text-xl uppercase cursor-pointer hover:text-brand-primary" onclick="analyzeSymbol('${item.symbol}')">${item.symbol}</h4>
-                            ${evalResult ? `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${evalResult.signalClass}">${evalResult.signalText} (${evalResult.score}Đ)</span>` : ''}
+                            <h4 class="font-bold text-white text-lg uppercase cursor-pointer hover:text-brand-primary" onclick="analyzeSymbol('${item.symbol}')">${item.symbol}</h4>
+                            ${evalResult ? `<span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold ${portfolioBadgeClass}">${portfolioBadgeText} · ${portfolioBadgeMetric}</span>` : ''}
                         </div>
-                        <div class="text-xs text-gray-400 mt-1">SL: <span class="text-white font-semibold">${formatNumber(item.volume)}</span> | Giá vốn: <span class="text-white font-semibold">${formatNumber(item.buyPrice)}</span></div>
-                        <div class="portfolio-live-price text-xs mt-1 flex items-center gap-3 whitespace-nowrap">
-                            <span class="text-gray-500 min-w-0">Giá hiện tại: <b class="text-white">${formatNumber(currentPrice)}</b></span>
-                            <span class="${dailyColorClass} flex-shrink-0">Hôm nay: <b>${dailyChangePercent == null ? '---' : `${isDailyUp ? '+' : ''}${dailyChangePercent.toFixed(2)}%`}</b></span>
-                        </div>
+                        <div class="text-[10px] text-gray-500">${formatNumber(item.volume)} CP</div>
                     </div>
-                    <div class="text-right">
-                        <div class="font-bold text-white text-base">${formatCurrency(currentVal)}</div>
-                        <div class="text-xs font-bold ${colorClass} mt-0.5">
-                            ${isUp ? '+' : ''}${formatCurrency(pl)} (${isUp ? '+' : ''}${plPercent.toFixed(2)}%)
-                        </div>
+                    <div class="text-right flex-shrink-0">
+                        <div class="font-bold text-white text-sm">${formatCurrency(currentVal)}</div>
+                        <div class="text-xs font-bold ${colorClass}">${isUp ? '+' : ''}${formatCurrency(pl)} · ${isUp ? '+' : ''}${plPercent.toFixed(2)}%</div>
                     </div>
                 </div>
 
+                <div class="grid grid-cols-3 gap-1.5 text-[10px]">
+                    <div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Giá vốn</span><b class="text-gray-200">${formatNumber(item.buyPrice)}</b></div>
+                    <div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Hiện tại</span><b class="text-white">${formatNumber(currentPrice)}</b></div>
+                    <div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Hôm nay</span><b class="${dailyColorClass}">${dailyChangePercent == null ? '---' : `${isDailyUp ? '+' : ''}${dailyChangePercent.toFixed(2)}%`}</b></div>
+                </div>
+
                 ${(suggestedStop && suggestedTarget) ? `
-                    <div>
-                        <div class="portfolio-trade-levels grid grid-cols-2 gap-2 text-[10px]">
-                            <div class="rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1.5 text-gray-500">Dừng lỗ gợi ý <b class="text-red-400 text-xs float-right">${formatNumber(suggestedStop)}</b></div>
-                            <div class="rounded-md bg-green-500/10 border border-green-500/20 px-2 py-1.5 text-gray-500">Mục tiêu gợi ý <b class="text-green-400 text-xs float-right">${formatNumber(suggestedTarget)}</b></div>
-                        </div>
-                        <div class="text-[9px] text-gray-600 mt-1">Mức kỹ thuật tham khảo, cần điều chỉnh theo khẩu vị rủi ro.</div>
+                    <div class="flex items-center justify-between gap-2 text-[10px] px-1 ${stopBreached ? 'bg-red-500/10 border border-red-500/30 rounded-md py-1.5' : ''}">
+                        <span class="${stopBreached ? 'text-red-300 font-semibold' : 'text-gray-500'}">${stopBreached ? 'Đã thủng stop' : 'Dừng lỗ'} <b class="text-red-400 ml-1">${formatNumber(suggestedStop)}</b></span>
+                        <span class="text-gray-500">Mục tiêu <b class="text-green-400 ml-1">${formatNumber(suggestedTarget)}</b></span>
                     </div>
                 ` : ''}
 
-                ${strategyBadges ? `<div class="flex flex-wrap gap-1">${strategyBadges}</div>` : ''}
-
-                <!-- Hàng 2: Gợi Ý Khuyên Dùng Chuyên Gia -->
-                ${adviceTag ? `
-                    <div class="bg-[#0B0E14] border ${adviceClass} border rounded-lg p-2.5 text-xs">
-                        <div class="font-bold mb-0.5 flex items-center gap-1.5">
-                            <span>${adviceTag}</span>
+                ${(adviceTag || strategyBadges) ? `
+                    <details class="group border-t border-dark-border/60 pt-2">
+                        <summary class="cursor-pointer list-none flex justify-between items-center text-[11px] text-blue-300">
+                            <span><i class="fas fa-chevron-right mr-1.5 transition-transform group-open:rotate-90"></i>Xem phân tích & gợi ý</span>
+                            ${evalResult ? `<span class="text-gray-500">${evalResult.score} điểm</span>` : ''}
+                        </summary>
+                        <div class="mt-2 space-y-2">
+                            ${strategyBadges ? `<div class="flex flex-wrap gap-1">${strategyBadges}</div>` : ''}
+                            ${adviceTag ? `<div class="bg-[#0B0E14] border ${adviceClass} rounded-lg p-2 text-xs"><div class="font-bold mb-0.5">${adviceTag}</div><div class="text-gray-300 leading-relaxed">${adviceText}</div></div>` : ''}
+                            <div class="text-[9px] text-gray-600">Các mức kỹ thuật chỉ mang tính tham khảo.</div>
                         </div>
-                        <div class="text-gray-300 leading-relaxed">${adviceText}</div>
-                    </div>
+                    </details>
                 ` : ''}
 
-                <!-- Hàng 3: Nút Hành Động -->
-                <div class="flex justify-between items-center pt-1 border-t border-dark-border/50 text-xs">
-                    <button onclick="analyzeSymbol('${item.symbol}')" class="text-brand-primary font-semibold hover:underline flex items-center gap-1">
-                        <i class="fas fa-chart-line"></i> Xem biểu đồ
-                    </button>
-                    <div class="flex gap-3">
-                        <button onclick="openEditModal(${idx})" class="text-gray-400 hover:text-amber-400 font-medium flex items-center gap-1">
-                            <i class="fas fa-edit"></i> Sửa
-                        </button>
-                        <button onclick="removeStockFromPortfolio('${item.symbol}')" class="text-gray-400 hover:text-red-400 font-medium flex items-center gap-1">
-                            <i class="fas fa-trash"></i> Xóa
-                        </button>
+                <div class="flex justify-between items-center pt-1 text-[11px]">
+                    <button onclick="analyzeSymbol('${item.symbol}')" class="text-brand-primary font-semibold"><i class="fas fa-chart-line mr-1"></i>Biểu đồ</button>
+                    <div class="flex gap-4">
+                        <button onclick="openEditModal(${idx})" class="text-gray-400 hover:text-amber-400"><i class="fas fa-edit mr-1"></i>Sửa</button>
+                        <button onclick="removeStockFromPortfolio('${item.symbol}')" class="text-gray-400 hover:text-red-400"><i class="fas fa-trash mr-1"></i>Xóa</button>
                     </div>
                 </div>
             </div>
         `;
     }
 
+    if (portfolioPlanChanged) savePortfolio();
     listEl.innerHTML = html;
 
     const totalPL = totalCurrentValue - totalInvestedValue;
@@ -294,6 +334,8 @@ document.getElementById('btn-add-stock')?.addEventListener('click', () => {
     symbolInput.disabled = false;
     document.getElementById('port-price').value = '';
     document.getElementById('port-vol').value = '';
+    document.getElementById('port-stop').value = '';
+    document.getElementById('port-target').value = '';
     document.getElementById('modal-portfolio').classList.remove('hidden');
 });
 
@@ -306,9 +348,18 @@ document.getElementById('btn-save-port')?.addEventListener('click', () => {
     const symbol = symbolInput.value.toUpperCase().trim();
     const price = parseFloat(document.getElementById('port-price').value);
     const vol = parseFloat(document.getElementById('port-vol').value);
+    const stopValue = parseFloat(document.getElementById('port-stop').value);
+    const targetValue = parseFloat(document.getElementById('port-target').value);
+    const stopLoss = Number.isFinite(stopValue) && stopValue > 0 ? stopValue : null;
+    const target = Number.isFinite(targetValue) && targetValue > 0 ? targetValue : null;
 
     if (!symbol || !(price > 0) || !(vol > 0)) {
         alert('Vui lòng nhập đầy đủ Mã cổ phiếu, Giá mua và Số lượng hợp lệ!');
+        return;
+    }
+
+    if (stopLoss && target && stopLoss >= target) {
+        alert('Mức dừng lỗ phải thấp hơn mục tiêu.');
         return;
     }
 
@@ -316,17 +367,22 @@ document.getElementById('btn-save-port')?.addEventListener('click', () => {
         // Cập nhật mã đang sửa
         portfolio[editingIndex].buyPrice = price;
         portfolio[editingIndex].volume = vol;
+        portfolio[editingIndex].stopLoss = stopLoss;
+        portfolio[editingIndex].initialStopLoss = stopLoss;
+        portfolio[editingIndex].target = target;
         savePortfolio();
         renderPortfolio();
     } else {
         // Thêm mã mới
-        addStockToPortfolio(symbol, price, vol);
+        addStockToPortfolio(symbol, price, vol, stopLoss, target);
     }
 
     document.getElementById('modal-portfolio').classList.add('hidden');
     symbolInput.value = '';
     document.getElementById('port-price').value = '';
     document.getElementById('port-vol').value = '';
+    document.getElementById('port-stop').value = '';
+    document.getElementById('port-target').value = '';
 });
 
 document.getElementById('btn-export-data')?.addEventListener('click', exportLocalData);

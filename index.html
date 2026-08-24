@@ -30,7 +30,7 @@
         }
     </script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="css/style.css?v=20260820-paper-quote">
+    <link rel="stylesheet" href="css/style.css?v=20260824-clean1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -130,7 +130,7 @@
                 <select id="filter-signal" class="bg-dark-card border border-dark-border rounded-lg px-2.5 py-1 text-xs outline-none text-white font-medium">
                     <option value="BUY" selected>🔥 Cơ hội mua đáng chú ý</option>
                     <option value="ALL">⚡ Tất cả tín hiệu</option>
-                    <option value="SELL">🔻 Bán / Bán Mạnh</option>
+                    <option value="SELL">🔻 Rủi ro bán cao</option>
                 </select>
             </div>
             <!-- Bộ lọc Tín hiệu Chiến lược -->
@@ -150,7 +150,11 @@
         <!-- Tab 3: Biểu đồ & Phân tích chi tiết -->
         <section id="tab-chart" class="tab-content hidden pt-4 space-y-4">
             <div class="flex gap-2">
-                <input type="text" id="search-symbol" placeholder="Nhập mã CP (VD: FPT)" class="flex-1 bg-dark-card border border-dark-border rounded-xl px-4 py-3 text-white uppercase outline-none focus:border-brand-primary transition-colors">
+                <div id="symbol-search-wrap" class="relative flex-1 min-w-0">
+                    <input type="text" id="search-symbol" placeholder="Nhập mã CP (VD: FPT)" class="w-full bg-dark-card border border-dark-border rounded-xl px-4 py-3 pr-9 text-white uppercase outline-none focus:border-brand-primary transition-colors" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="symbol-suggestions">
+                    <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-xs pointer-events-none"></i>
+                    <div id="symbol-suggestions" class="hidden absolute z-[70] left-0 right-0 top-full mt-1 bg-dark-card border border-dark-border rounded-xl shadow-2xl overflow-hidden" role="listbox"></div>
+                </div>
                 <button id="btn-analyze" class="bg-brand-primary border border-brand-primary text-white px-5 rounded-xl font-semibold shadow-lg active:scale-95 transition-transform">
                     Xem
                 </button>
@@ -185,7 +189,7 @@
                 <div class="border-t border-dark-border pt-4">
                     <div class="flex justify-between items-center mb-2">
                         <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
-                            <i class="fas fa-robot text-purple-400"></i> AI Trợ Lý Phân Tích Tin Tức & Sentiment
+                            <i class="fas fa-robot text-purple-400"></i> AI hỗ trợ đọc tin tức
                         </h3>
                         <button id="btn-config-ai" class="text-[11px] text-purple-400 hover:underline flex items-center gap-1">
                             <i class="fas fa-key"></i> Key AI
@@ -228,56 +232,65 @@
         </section>
 
         <!-- Tab 5: Đầu tư thử nghiệm -->
-        <section id="tab-paper" class="tab-content hidden pt-4 space-y-4">
-            <div class="bg-gradient-to-br from-dark-card to-[#162033] rounded-2xl border border-dark-border p-4">
+        <section id="tab-paper" class="tab-content hidden pt-3 space-y-3">
+            <div class="bg-gradient-to-br from-dark-card to-[#162033] rounded-2xl border border-dark-border p-3">
                 <div class="flex justify-between items-start">
                     <div>
                         <div class="text-xs text-gray-500">Tài sản thử nghiệm</div>
-                        <div id="paper-total-assets" class="text-2xl font-bold text-white mt-1">500.000.000 ₫</div>
-                        <div id="paper-total-pl" class="text-xs text-gray-400 mt-1">Lãi/lỗ: 0 ₫ (0%)</div>
+                        <div id="paper-total-assets" class="text-2xl font-bold text-white">500.000.000 ₫</div>
+                        <div id="paper-total-pl" class="text-xs text-gray-400">Lãi/lỗ: 0 ₫ (0%)</div>
                     </div>
-                    <button id="btn-reset-paper" class="text-[10px] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-1.5">Cấu hình vốn</button>
+                    <button id="btn-reset-paper" class="text-[10px] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-1.5 flex-shrink-0"><i class="fas fa-sliders-h mr-1"></i>Vốn</button>
                 </div>
-                <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
-                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Tiền mặt</div><b id="paper-cash" class="text-white">500.000.000 ₫</b></div>
-                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Giá trị cổ phiếu</div><b id="paper-market-value" class="text-white">0 ₫</b></div>
-                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Lãi/lỗ đã chốt</div><b id="paper-realized-pl" class="text-white">0 ₫</b></div>
-                    <div class="bg-black/20 rounded-lg p-2"><div class="text-gray-500">Tỷ lệ tiền mặt</div><b id="paper-cash-ratio" class="text-white">100%</b></div>
+                <div class="grid grid-cols-3 gap-1.5 mt-3 text-[10px]">
+                    <div class="bg-black/20 rounded-lg px-2 py-1.5 min-w-0"><div class="text-gray-500">Tiền mặt</div><b id="paper-cash" class="text-white block truncate">500.000.000 ₫</b></div>
+                    <div class="bg-black/20 rounded-lg px-2 py-1.5 min-w-0"><div class="text-gray-500">Cổ phiếu</div><b id="paper-market-value" class="text-white block truncate">0 ₫</b></div>
+                    <div class="bg-black/20 rounded-lg px-2 py-1.5 min-w-0"><div class="text-gray-500">Đã chốt</div><b id="paper-realized-pl" class="text-white block truncate">0 ₫</b></div>
                 </div>
+                <div class="mt-2 h-1.5 rounded-full bg-black/30 overflow-hidden" title="Tỷ lệ tiền mặt"><div id="paper-cash-ratio-bar" class="h-full bg-blue-500 transition-all" style="width:100%"></div></div>
+                <div class="text-[9px] text-gray-500 mt-1 text-right">Tiền mặt <b id="paper-cash-ratio" class="text-gray-300">100%</b></div>
             </div>
 
-            <button id="btn-paper-buy" class="w-full bg-brand-primary text-white rounded-xl py-3 font-semibold"><i class="fas fa-cart-plus mr-1"></i> Đặt lệnh mua thử</button>
+            <button id="btn-paper-buy" class="w-full bg-brand-primary text-white rounded-xl py-2.5 font-semibold"><i class="fas fa-plus-circle mr-1"></i> Đặt lệnh mới</button>
 
             <div>
                 <h3 class="font-bold text-white mb-2">Vị thế đang mở</h3>
                 <div id="paper-positions" class="space-y-2"><div class="text-center text-gray-500 text-xs py-6">Chưa có vị thế</div></div>
             </div>
-            <div>
-                <h3 class="font-bold text-white mb-2">Lịch sử giao dịch</h3>
-                <div id="paper-trades" class="space-y-2"><div class="text-center text-gray-500 text-xs py-6">Chưa có giao dịch</div></div>
-            </div>
+            <details class="group bg-dark-card border border-dark-border rounded-xl">
+                <summary class="list-none cursor-pointer p-3 flex items-center justify-between text-sm font-semibold text-white"><span><i class="fas fa-history text-gray-500 mr-2"></i>Lịch sử giao dịch <span id="paper-trade-count" class="text-[10px] text-gray-500 font-normal"></span></span><i class="fas fa-chevron-down text-gray-500 transition-transform group-open:rotate-180"></i></summary>
+                <div id="paper-trades" class="space-y-2 px-3 pb-3"><div class="text-center text-gray-500 text-xs py-6">Chưa có giao dịch</div></div>
+            </details>
 
-            <div class="bg-dark-card border border-dark-border rounded-2xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <div><h3 class="font-bold text-white">Backtest chiến lược</h3><p class="text-[10px] text-gray-500">Tín hiệu cuối ngày, khớp từ phiên kế tiếp</p></div>
-                    <i class="fas fa-vial text-purple-400"></i>
+            <details class="group bg-dark-card border border-dark-border rounded-xl">
+              <summary class="list-none cursor-pointer p-3 flex items-center justify-between"><span><b class="text-white text-sm"><i class="fas fa-vial text-purple-400 mr-2"></i>Kiểm chứng chiến lược</b><span class="block text-[10px] text-gray-500 ml-6">Backtest trên dữ liệu lịch sử</span></span><i class="fas fa-chevron-down text-gray-500 transition-transform group-open:rotate-180"></i></summary>
+              <div class="px-3 pb-3">
+            <div>
+                <div class="text-[10px] text-gray-500 mb-3">Mô phỏng tín hiệu cũ với phí, thuế và quản trị rủi ro thực tế.</div>
+                <label for="backtest-symbol" class="text-[11px] text-gray-400">1. Mã cần kiểm tra</label>
+                <input id="backtest-symbol" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2.5 text-white uppercase text-sm" placeholder="Ví dụ: FPT" autocomplete="off">
+                <div class="mt-3 text-[11px] text-gray-400">2. Thời gian kiểm tra</div>
+                <div id="backtest-period-options" class="grid grid-cols-3 gap-1.5 mt-1">
+                    <button type="button" data-days="250" class="backtest-period py-2 rounded-lg border border-purple-500/50 bg-purple-500/15 text-purple-300 text-xs font-semibold">1 năm</button>
+                    <button type="button" data-days="500" class="backtest-period py-2 rounded-lg border border-dark-border text-gray-400 text-xs">2 năm</button>
+                    <button type="button" data-days="750" class="backtest-period py-2 rounded-lg border border-dark-border text-gray-400 text-xs">3 năm</button>
                 </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <input id="backtest-symbol" class="bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white uppercase text-sm" placeholder="Mã CP (FPT)">
-                    <select id="backtest-days" class="bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-sm">
-                        <option value="250">1 năm</option><option value="500">2 năm</option><option value="750">3 năm</option>
-                    </select>
-                </div>
-                <select id="backtest-strategy" class="w-full mt-2 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-sm"><option value="TREND" selected>Theo xu hướng (khuyến nghị)</option><option value="BREAKOUT">Breakout / dòng tiền</option><option value="BOTTOM">Bắt đáy</option><option value="ALL">Tất cả chiến lược</option></select>
-                <button id="btn-run-backtest" class="w-full mt-2 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-bold">Chạy backtest</button>
-                <div id="backtest-results" class="mt-3 text-xs text-gray-400">Chọn một mã để kiểm chứng thuật toán trên dữ liệu lịch sử.</div>
-                <div class="border-t border-dark-border mt-4 pt-4">
-                    <label class="text-xs text-gray-400">Batch backtest nhiều mã</label>
-                    <textarea id="batch-backtest-symbols" rows="2" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-xs uppercase">FPT,HPG,MBB,TCB,SSI,VNM,MWG,GMD,VHC,DGC</textarea>
-                    <button id="btn-run-batch-backtest" class="w-full mt-2 border border-purple-500/40 bg-purple-500/10 text-purple-300 rounded-lg py-2.5 text-sm font-bold">Chạy batch backtest</button>
-                    <div id="batch-backtest-results" class="mt-3 text-xs text-gray-400"></div>
-                </div>
+                <select id="backtest-days" class="hidden"><option value="250" selected>1 năm</option><option value="500">2 năm</option><option value="750">3 năm</option></select>
+                <label for="backtest-strategy" class="block mt-3 text-[11px] text-gray-400">3. Cách tìm cơ hội</label>
+                <select id="backtest-strategy" class="w-full mt-1 bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2.5 text-white text-sm"><option value="TREND" selected>Theo xu hướng — phù hợp nhất để bắt đầu</option><option value="BREAKOUT">Bứt phá — giá và dòng tiền tăng mạnh</option><option value="BOTTOM">Bắt đáy — rủi ro cao hơn</option><option value="ALL">Tổng hợp tất cả tín hiệu</option></select>
+                <div id="backtest-strategy-hint" class="text-[10px] text-gray-500 mt-1">Ưu tiên cổ phiếu khỏe hơn thị trường và đang trong xu hướng tăng.</div>
+                <button id="btn-run-backtest" class="w-full mt-3 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-bold"><i class="fas fa-play mr-1"></i> Kiểm tra hiệu quả</button>
+                <div id="backtest-results" class="mt-3 text-xs text-gray-400 bg-black/10 rounded-lg p-2.5">Nhập một mã, sau đó bấm “Kiểm tra hiệu quả”.</div>
+                <details class="border-t border-dark-border mt-4 pt-3">
+                    <summary class="cursor-pointer list-none flex justify-between text-xs text-blue-300"><span><i class="fas fa-layer-group mr-1"></i>Kiểm tra nhiều mã</span><i class="fas fa-chevron-down text-gray-500"></i></summary>
+                    <div class="mt-2"><p class="text-[10px] text-gray-500 mb-1">Dành cho kiểm chứng nâng cao, tối đa 20 mã.</p>
+                    <textarea id="batch-backtest-symbols" rows="2" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white text-xs uppercase">FPT,HPG,MBB,TCB,SSI,VNM,MWG,GMD,VHC,DGC</textarea>
+                    <button id="btn-run-batch-backtest" class="w-full mt-2 border border-purple-500/40 bg-purple-500/10 text-purple-300 rounded-lg py-2.5 text-sm font-bold">Kiểm tra danh sách</button>
+                    <div id="batch-backtest-results" class="mt-3 text-xs text-gray-400"></div></div>
+                </details>
             </div>
+              </div>
+            </details>
         </section>
 
     </main>
@@ -325,6 +338,11 @@
                     <label class="text-xs text-gray-400 mb-1 block">Số lượng</label>
                     <input type="number" id="port-vol" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white outline-none focus:border-brand-primary" placeholder="VD: 1000">
                 </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="text-xs text-gray-400 mb-1 block">Dừng lỗ</label><input type="number" id="port-stop" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white outline-none focus:border-red-400" placeholder="Tự động"></div>
+                    <div><label class="text-xs text-gray-400 mb-1 block">Mục tiêu</label><input type="number" id="port-target" class="w-full bg-[#0B0E14] border border-dark-border rounded-lg px-3 py-2 text-white outline-none focus:border-green-400" placeholder="Tự động"></div>
+                </div>
+                <p class="text-[10px] text-gray-500">Để trống để hệ thống khởi tạo theo kỹ thuật. Dừng lỗ tự động chỉ được nâng lên, không hạ xuống.</p>
             </div>
             <div class="flex gap-3 mt-6">
                 <button id="btn-cancel-port" class="flex-1 py-2 rounded-lg font-semibold text-gray-400 bg-dark-border hover:bg-gray-700">Hủy</button>
@@ -416,13 +434,13 @@
         </div>
     </div>
 
-    <script src="js/data.js"></script>
-    <script src="js/ta.js?v=20260820-algo-v4"></script>
-    <script src="js/signal-store.js?v=20260820-algo-v2"></script>
-    <script src="js/ai-news.js?v=20260820-file-cors-fix4"></script>
-    <script src="js/portfolio.js?v=20260820-trade-levels"></script>
-    <script src="js/paper-trading.js?v=20260820-algo-v2"></script>
-    <script src="js/backtest.js?v=20260820-algo-v3"></script>
-    <script src="js/app.js?v=20260820-file-cors-fix4"></script>
+    <script src="js/data.js?v=20260824-clean1"></script>
+    <script src="js/ta.js?v=20260824-clean1"></script>
+    <script src="js/signal-store.js?v=20260824-clean1"></script>
+    <script src="js/ai-news.js?v=20260824-clean1"></script>
+    <script src="js/portfolio.js?v=20260824-clean1"></script>
+    <script src="js/paper-trading.js?v=20260824-clean1"></script>
+    <script src="js/backtest.js?v=20260824-clean1"></script>
+    <script src="js/app.js?v=20260824-clean1"></script>
 </body>
 </html>

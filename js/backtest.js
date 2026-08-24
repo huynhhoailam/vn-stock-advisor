@@ -32,9 +32,9 @@ function runWalkForwardBacktest(symbol, candles, benchmarkCandles = [], strategy
         const isBottomProbe = strategyFilter === 'BOTTOM'
             && isBottom
             && (result?.signal === 'BUY' || result?.signal === 'STRONG_BUY')
-            && result.score >= 66;
+            && result.score >= OPPORTUNITY_THRESHOLDS.BUY;
         const hasSetup = result && marketAllowsTrade && matchesStrategy && result.strategies.length > 0
-            && ((result.signal === 'STRONG_BUY' && result.score >= 82) || isBottomProbe);
+            && ((result.signal === 'STRONG_BUY' && result.score >= OPPORTUNITY_THRESHOLDS.STRONG_BUY) || isBottomProbe);
         if (!hasSetup) continue;
 
         let entryIndex = -1;
@@ -147,13 +147,20 @@ function renderBacktestResult(symbol, result) {
     }
     const returnClass = result.totalReturnPct >= 0 ? 'text-green-400' : 'text-red-400';
     const factor = Number.isFinite(result.profitFactor) ? result.profitFactor.toFixed(2) : '∞';
+    const enoughTrades = result.trades.length >= 10;
+    const hasEdge = enoughTrades && result.totalReturnPct > 0 && result.profitFactor > 1 && result.maxDrawdown < 15;
+    const verdict = !enoughTrades
+        ? '<div class="mb-2 rounded-lg bg-amber-500/10 p-2 text-amber-300"><b>Chưa đủ dữ liệu để kết luận.</b><div class="text-[10px] mt-0.5">Số lệnh còn ít; hãy thử giai đoạn dài hơn hoặc kiểm tra nhiều mã.</div></div>'
+        : hasEdge
+            ? '<div class="mb-2 rounded-lg bg-green-500/10 p-2 text-green-300"><b>Kết quả có tín hiệu tích cực.</b><div class="text-[10px] mt-0.5">Nên tiếp tục xác nhận bằng đầu tư thử trước khi dùng tiền thật.</div></div>'
+            : '<div class="mb-2 rounded-lg bg-red-500/10 p-2 text-red-300"><b>Chưa thấy lợi thế rõ ràng.</b><div class="text-[10px] mt-0.5">Không nên dùng riêng chiến lược này để ra quyết định mua.</div></div>';
     const recentTrades = result.trades.slice(-5).reverse().map(trade => `<div class="flex justify-between border-t border-dark-border/50 py-1.5"><span>${trade.entryDate} → ${trade.exitDate} · ${trade.exitReason}<small class="block text-[9px] text-gray-600">${trade.score}đ · ${trade.strategies.join('/')} · tỷ trọng ${trade.positionWeightPct.toFixed(1)}%</small></span><b class="${trade.portfolioReturnPct >= 0 ? 'text-green-400' : 'text-red-400'}">${trade.portfolioReturnPct >= 0 ? '+' : ''}${trade.portfolioReturnPct.toFixed(2)}% tài khoản</b></div>`).join('');
-    element.innerHTML = `
+    element.innerHTML = `${verdict}
         <div class="grid grid-cols-2 gap-2">
-            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Lợi nhuận mô phỏng</div><b class="${returnClass}">${result.totalReturnPct >= 0 ? '+' : ''}${result.totalReturnPct.toFixed(2)}%</b></div>
-            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Tỷ lệ thắng</div><b class="text-white">${result.winRate.toFixed(1)}% / ${result.trades.length} lệnh</b></div>
-            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Drawdown lớn nhất</div><b class="text-red-400">-${result.maxDrawdown.toFixed(2)}%</b></div>
-            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Profit factor</div><b class="text-white">${factor}</b></div>
+            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Tài khoản tăng/giảm</div><b class="${returnClass}">${result.totalReturnPct >= 0 ? '+' : ''}${result.totalReturnPct.toFixed(2)}%</b></div>
+            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Lệnh có lãi</div><b class="text-white">${result.winRate.toFixed(1)}% · ${result.trades.length} lệnh</b></div>
+            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Mức giảm sâu nhất</div><b class="text-red-400">-${result.maxDrawdown.toFixed(2)}%</b></div>
+            <div class="bg-[#0B0E14] rounded-lg p-2"><div class="text-gray-500">Lãi / lỗ</div><b class="text-white">${factor}</b><span class="text-[9px] text-gray-600"> ${result.profitFactor > 1 ? 'tốt hơn 1' : 'cần trên 1'}</span></div>
         </div>
         <div class="mt-2 text-[10px] text-gray-500">Mỗi lệnh rủi ro tối đa 1%, tỷ trọng tối đa 25%; đã gồm phí, thuế, trượt giá và gap qua stop. Kết quả quá khứ không đảm bảo hiệu quả tương lai.</div>
         <div class="mt-2">${recentTrades}</div>`;
@@ -170,8 +177,8 @@ document.getElementById('btn-run-backtest')?.addEventListener('click', async () 
     }
     try {
         button.disabled = true;
-        button.textContent = 'Đang tải và chạy backtest...';
-        document.getElementById('backtest-results').textContent = 'Đang mô phỏng từng phiên, không sử dụng dữ liệu tương lai...';
+        button.textContent = 'Đang kiểm tra...';
+        document.getElementById('backtest-results').innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin mr-1"></i> Đang mô phỏng từng phiên...</div>';
         const [candles, benchmark] = await Promise.all([fetchStockHistory(symbol, days), getBacktestBenchmark(days)]);
         if (!candles || candles.length < 100) throw new Error('Không đủ dữ liệu lịch sử để backtest.');
         await new Promise(resolve => setTimeout(resolve, 20));
@@ -180,8 +187,29 @@ document.getElementById('btn-run-backtest')?.addEventListener('click', async () 
         document.getElementById('backtest-results').innerHTML = `<div class="text-red-400">${error.message}</div>`;
     } finally {
         button.disabled = false;
-        button.textContent = 'Chạy backtest';
+        button.innerHTML = '<i class="fas fa-play mr-1"></i> Kiểm tra hiệu quả';
     }
+});
+
+Array.from(document.querySelectorAll?.('.backtest-period') || []).forEach(button => button.addEventListener('click', () => {
+    document.getElementById('backtest-days').value = button.dataset.days;
+    Array.from(document.querySelectorAll?.('.backtest-period') || []).forEach(item => {
+        const active = item === button;
+        item.className = `backtest-period py-2 rounded-lg border text-xs ${active ? 'border-purple-500/50 bg-purple-500/15 text-purple-300 font-semibold' : 'border-dark-border text-gray-400'}`;
+    });
+}));
+
+const backtestStrategyHints = {
+    TREND: 'Ưu tiên cổ phiếu khỏe hơn thị trường và đang trong xu hướng tăng.',
+    BREAKOUT: 'Tìm thời điểm giá bứt phá cùng thanh khoản tăng; có thể biến động mạnh.',
+    BOTTOM: 'Tìm dấu hiệu hồi phục sau giảm sâu; rủi ro cao và cần kỷ luật dừng lỗ.',
+    ALL: 'Gộp nhiều loại tín hiệu; dễ có nhiều lệnh nhưng khó xác định nguồn hiệu quả.'
+};
+document.getElementById('backtest-strategy')?.addEventListener('change', event => {
+    document.getElementById('backtest-strategy-hint').textContent = backtestStrategyHints[event.target.value] || '';
+});
+document.getElementById('backtest-symbol')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') document.getElementById('btn-run-backtest')?.click();
 });
 
 function aggregateBatchBacktests(items) {
@@ -259,6 +287,6 @@ document.getElementById('btn-run-batch-backtest')?.addEventListener('click', asy
         output.innerHTML = `<div class="text-red-400">${error.message}</div>`;
     } finally {
         button.disabled = false;
-        button.textContent = 'Chạy batch backtest';
+        button.textContent = 'Kiểm tra danh sách';
     }
 });

@@ -4,7 +4,8 @@ const PAPER_FEE_RATE = 0.0015;
 const PAPER_SELL_TAX_RATE = 0.001;
 const PAPER_SLIPPAGE_RATE = 0.0005;
 let paperOrderSide = 'BUY';
-let paperReferencePrice = 0;
+let paperRenderRequestId = 0;
+let paperEstimateRequestId = 0;
 
 const paperCurrency = value => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value);
 const paperPrice = value => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value);
@@ -97,14 +98,29 @@ async function executePaperOrder(symbol, side, volume) {
         const existingCost = current.avgPrice * current.volume;
         const currentEquity = await getPaperEstimatedEquity(account);
         const projectedWeight = currentEquity > 0 ? (existingCost + totalCost) / currentEquity * 100 : 100;
-        if (projectedWeight > 30) throw new Error(`Lệnh khiến ${symbol} vượt 30% vốn ban đầu (${projectedWeight.toFixed(1)}%). Hãy giảm số lượng.`);
+        if (projectedWeight > 25) throw new Error(`Lệnh khiến ${symbol} vượt 25% tổng tài sản (${projectedWeight.toFixed(1)}%). Hãy giảm số lượng.`);
         const newVolume = current.volume + volume;
         current.avgPrice = (current.avgPrice * current.volume + grossValue + fee) / newVolume;
         current.volume = newVolume;
-        const scanResult = typeof scannedResults !== 'undefined' ? scannedResults.find(item => item.symbol === symbol) : null;
-        if (scanResult?.tradePlan) {
-            current.stopLoss = scanResult.tradePlan.stopLoss * 1000;
-            current.target = scanResult.tradePlan.target1 * 1000;
+        let planResult = typeof scannedResults !== 'undefined' ? scannedResults.find(item => item.symbol === symbol) : null;
+        if (!planResult?.tradePlan) {
+            try {
+                const history = await fetchStockHistory(symbol, 60);
+                planResult = evaluateStock(
+                    symbol,
+                    history,
+                    null,
+                    typeof currentMarketRegime !== 'undefined' ? currentMarketRegime : null,
+                    typeof marketBenchmarkCandles !== 'undefined' ? marketBenchmarkCandles : null
+                );
+            } catch (_) {}
+        }
+        if (planResult?.tradePlan) {
+            current.stopLoss = Math.max(current.stopLoss || 0, planResult.tradePlan.stopLoss * 1000);
+            current.target = current.target || planResult.tradePlan.target1 * 1000;
+        } else {
+            current.stopLoss = Math.max(current.stopLoss || 0, marketPrice * 0.95);
+            current.target = current.target || marketPrice * 1.075;
         }
         account.cash -= totalCost;
         account.positions[symbol] = current;
@@ -127,24 +143,30 @@ async function executePaperOrder(symbol, side, volume) {
 }
 
 async function renderPaperTrading() {
+    const requestId = ++paperRenderRequestId;
     const positionsElement = document.getElementById('paper-positions');
     if (!positionsElement) return;
     positionsElement.innerHTML = '<div class="text-center text-gray-500 text-xs py-6">Đang cập nhật giá...</div>';
     const [account, trades] = await Promise.all([getPaperAccount(), getPaperTrades()]);
     const positions = Object.values(account.positions || {});
-    let marketValue = 0;
     let positionHtml = '';
     const maxPositionWeight = 25;
-
-    for (const position of positions) {
-        let price = position.avgPrice;
-        let dailyChangePercent = null;
+    const quotes = await Promise.all(positions.map(async position => {
         try {
-            const quote = await getPaperQuote(position.symbol);
-            price = quote.price;
-            dailyChangePercent = quote.dailyChangePercent;
-        } catch (_) {}
-        const value = price * position.volume;
+            return await getPaperQuote(position.symbol);
+        } catch (_) {
+            return { price: position.avgPrice, dailyChangePercent: null };
+        }
+    }));
+    if (requestId !== paperRenderRequestId) return;
+    const positionValues = positions.map((position, index) => quotes[index].price * position.volume);
+    const marketValue = positionValues.reduce((sum, value) => sum + value, 0);
+    const totalAssets = account.cash + marketValue;
+
+    for (let index = 0; index < positions.length; index++) {
+        const position = positions[index];
+        const { price, dailyChangePercent } = quotes[index];
+        const value = positionValues[index];
         const cost = position.avgPrice * position.volume;
         const pl = value - cost;
         const plPercent = cost ? pl / cost * 100 : 0;
@@ -153,20 +175,17 @@ async function renderPaperTrading() {
             : (position.target && price >= position.target
                 ? '<span class="text-[10px] px-2 py-0.5 rounded bg-green-500/15 text-green-400">ĐẠT MỤC TIÊU</span>'
                 : '');
-        marketValue += value;
-        const provisionalAssets = account.cash + Object.values(account.positions || {}).reduce((sum, item) => sum + item.avgPrice * item.volume, 0);
-        const positionWeight = provisionalAssets ? value / provisionalAssets * 100 : 0;
+        const positionWeight = totalAssets ? value / totalAssets * 100 : 0;
         const dailyChangeClass = dailyChangePercent == null ? 'text-gray-500' : (dailyChangePercent >= 0 ? 'text-brand-up' : 'text-brand-down');
         const dailyChangeText = dailyChangePercent == null ? '---' : `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%`;
-        positionHtml += `<div class="bg-dark-card border border-dark-border rounded-xl p-3">
-            <div class="flex justify-between"><div class="min-w-0"><div class="flex items-center gap-2"><b class="text-white text-lg">${position.symbol}</b>${planStatus}</div><div class="text-[10px] text-gray-500">${position.volume} CP · Giá vốn ${paperCurrency(position.avgPrice)}</div><div class="paper-live-price text-xs mt-1 flex items-center gap-3 whitespace-nowrap"><span class="text-gray-500">Giá hiện tại: <b class="text-white">${paperPrice(price)}</b></span><span class="${dailyChangeClass} flex-shrink-0">Hôm nay: <b>${dailyChangeText}</b></span></div></div><div class="text-right flex-shrink-0"><b class="text-white">${paperCurrency(value)}</b><div class="text-xs ${pl >= 0 ? 'text-green-400' : 'text-red-400'}">${pl >= 0 ? '+' : ''}${paperCurrency(pl)} (${plPercent.toFixed(2)}%)</div></div></div>
-            ${(position.stopLoss || position.target) ? `<div class="text-[10px] text-gray-500 mt-2">Dừng lỗ: <span class="text-red-400">${paperCurrency(position.stopLoss || 0)}</span> · Mục tiêu: <span class="text-green-400">${paperCurrency(position.target || 0)}</span></div>` : ''}
-            <div class="text-[10px] mt-1 ${positionWeight > maxPositionWeight ? 'text-amber-400' : 'text-gray-500'}">Tỷ trọng ước tính: ${positionWeight.toFixed(1)}%${positionWeight > maxPositionWeight ? ' · Tập trung cao' : ''}</div>
-            <button onclick="openPaperOrder('${position.symbol}','SELL')" class="mt-2 text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1.5">Bán thử</button>
+        positionHtml += `<div class="bg-dark-card border border-dark-border rounded-xl p-3 space-y-2.5">
+            <div class="flex justify-between gap-3"><div class="min-w-0"><div class="flex items-center gap-1.5"><b class="text-white text-lg">${position.symbol}</b>${planStatus}</div><div class="text-[10px] text-gray-500">${paperPrice(position.volume)} CP</div></div><div class="text-right flex-shrink-0"><b class="text-white text-sm">${paperCurrency(value)}</b><div class="text-xs ${pl >= 0 ? 'text-green-400' : 'text-red-400'}">${pl >= 0 ? '+' : ''}${paperCurrency(pl)} · ${pl >= 0 ? '+' : ''}${plPercent.toFixed(2)}%</div></div></div>
+            <div class="grid grid-cols-3 gap-1.5 text-[10px]"><div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Giá vốn</span><b class="text-gray-200">${paperPrice(position.avgPrice)}</b></div><div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Hiện tại</span><b class="text-white">${paperPrice(price)}</b></div><div class="bg-black/20 rounded-md px-2 py-1"><span class="text-gray-500 block">Hôm nay</span><b class="${dailyChangeClass}">${dailyChangeText}</b></div></div>
+            <div class="flex justify-between items-center text-[10px]">${(position.stopLoss || position.target) ? `<span class="text-gray-500">Stop <b class="text-red-400">${paperPrice(position.stopLoss || 0)}</b> · Mục tiêu <b class="text-green-400">${paperPrice(position.target || 0)}</b></span>` : '<span></span>'}<span class="${positionWeight > maxPositionWeight ? 'text-amber-400' : 'text-gray-500'}">${positionWeight.toFixed(1)}% vốn${positionWeight > maxPositionWeight ? ' ⚠' : ''}</span></div>
+            <div class="flex justify-end border-t border-dark-border/60 pt-2"><button onclick="openPaperOrder('${position.symbol}','SELL')" class="text-xs text-red-400"><i class="fas fa-minus-circle mr-1"></i>Bán vị thế</button></div>
         </div>`;
     }
 
-    const totalAssets = account.cash + marketValue;
     const totalPl = totalAssets - account.initialCash;
     const totalPlPercent = account.initialCash ? totalPl / account.initialCash * 100 : 0;
     document.getElementById('paper-total-assets').textContent = paperCurrency(totalAssets);
@@ -175,29 +194,37 @@ async function renderPaperTrading() {
     const realizedElement = document.getElementById('paper-realized-pl');
     const realizedPL = account.realizedPL || 0;
     realizedElement.textContent = `${realizedPL >= 0 ? '+' : ''}${paperCurrency(realizedPL)}`;
-    realizedElement.className = realizedPL >= 0 ? 'text-green-400' : 'text-red-400';
-    document.getElementById('paper-cash-ratio').textContent = totalAssets ? `${(account.cash / totalAssets * 100).toFixed(1)}%` : '0%';
+    realizedElement.className = `block truncate ${realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`;
+    const cashRatio = totalAssets ? account.cash / totalAssets * 100 : 0;
+    document.getElementById('paper-cash-ratio').textContent = `${cashRatio.toFixed(1)}%`;
+    const cashRatioBar = document.getElementById('paper-cash-ratio-bar');
+    if (cashRatioBar) cashRatioBar.style.width = `${Math.max(0, Math.min(100, cashRatio))}%`;
     const totalPlElement = document.getElementById('paper-total-pl');
     totalPlElement.textContent = `Lãi/lỗ: ${totalPl >= 0 ? '+' : ''}${paperCurrency(totalPl)} (${totalPlPercent.toFixed(2)}%)`;
-    totalPlElement.className = `text-xs mt-1 ${totalPl >= 0 ? 'text-green-400' : 'text-red-400'}`;
+    totalPlElement.className = `text-xs ${totalPl >= 0 ? 'text-green-400' : 'text-red-400'}`;
     positionsElement.innerHTML = positionHtml || '<div class="text-center text-gray-500 text-xs py-6">Chưa có vị thế</div>';
 
-    document.getElementById('paper-trades').innerHTML = trades.slice(0, 30).map(trade => `<div class="bg-dark-card border border-dark-border rounded-lg p-2.5 flex justify-between text-xs"><div><b class="${trade.side === 'BUY' ? 'text-green-400' : 'text-red-400'}">${trade.side === 'BUY' ? 'MUA' : 'BÁN'} ${trade.symbol}</b><div class="text-gray-500">${new Date(trade.createdAt).toLocaleString('vi-VN')}</div></div><div class="text-right text-gray-300">${trade.volume} × ${paperCurrency(trade.executionPrice)}<div class="text-[10px] text-gray-500">Phí/thuế ${paperCurrency(trade.fee + trade.tax)}</div></div></div>`).join('') || '<div class="text-center text-gray-500 text-xs py-6">Chưa có giao dịch</div>';
+    const tradeCount = document.getElementById('paper-trade-count');
+    if (tradeCount) tradeCount.textContent = trades.length ? `(${trades.length})` : '';
+    document.getElementById('paper-trades').innerHTML = trades.slice(0, 20).map(trade => `<div class="border-t border-dark-border/60 pt-2 flex justify-between text-xs"><div><b class="${trade.side === 'BUY' ? 'text-green-400' : 'text-red-400'}">${trade.side === 'BUY' ? 'MUA' : 'BÁN'} ${trade.symbol}</b><div class="text-[10px] text-gray-500">${new Date(trade.createdAt).toLocaleString('vi-VN')}</div></div><div class="text-right text-gray-300">${paperPrice(trade.volume)} × ${paperPrice(trade.executionPrice)}<div class="text-[10px] text-gray-500">Phí ${paperCurrency(trade.fee + trade.tax)}</div></div></div>`).join('') || '<div class="text-center text-gray-500 text-xs py-6">Chưa có giao dịch</div>';
 }
 
 async function updatePaperOrderEstimate() {
+    const requestId = ++paperEstimateRequestId;
     const symbol = document.getElementById('paper-symbol').value.toUpperCase().trim();
     const volume = Number(document.getElementById('paper-volume').value);
     const estimate = document.getElementById('paper-order-estimate');
     if (!symbol || !volume) return;
     try {
-        paperReferencePrice = await getPaperPrice(symbol);
+        const paperReferencePrice = await getPaperPrice(symbol);
+        if (requestId !== paperEstimateRequestId) return;
         document.getElementById('paper-reference-price').textContent = paperCurrency(paperReferencePrice);
         const executionPrice = paperReferencePrice * (paperOrderSide === 'BUY' ? 1 + PAPER_SLIPPAGE_RATE : 1 - PAPER_SLIPPAGE_RATE);
         const gross = executionPrice * volume;
         const costs = gross * PAPER_FEE_RATE + (paperOrderSide === 'SELL' ? gross * PAPER_SELL_TAX_RATE : 0);
         estimate.textContent = `${paperOrderSide === 'BUY' ? 'Tổng tiền dự kiến' : 'Tiền nhận dự kiến'}: ${paperCurrency(paperOrderSide === 'BUY' ? gross + costs : gross - costs)}`;
     } catch (error) {
+        if (requestId !== paperEstimateRequestId) return;
         estimate.textContent = error.message;
     }
 }
@@ -221,7 +248,6 @@ async function applyPaperRiskSizing() {
         const volume = Math.max(0, Math.min(riskVolume, cashVolume));
         if (volume < 100) throw new Error('Tài khoản không đủ tiền cho lô 100 cổ phiếu trong giới hạn rủi ro đã chọn.');
         document.getElementById('paper-volume').value = volume;
-        paperReferencePrice = price;
         await updatePaperOrderEstimate();
         document.getElementById('paper-order-estimate').innerHTML += `<div class="mt-1 text-blue-300">Khối lượng theo rủi ro ${(riskPercent * 100).toFixed(1)}% · stop ${paperCurrency(stopLoss)} · ngân sách rủi ro ${paperCurrency(riskBudget)}</div>`;
     } catch (error) {

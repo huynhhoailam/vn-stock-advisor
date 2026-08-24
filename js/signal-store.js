@@ -35,9 +35,8 @@ function openSignalDB() {
 
 async function saveSignalBatch(results, marketRegime) {
     if (!Array.isArray(results) || results.length === 0) return;
-    const eligibleResults = results.filter(result =>
-        result.signal === 'BUY' || result.signal === 'STRONG_BUY' || (result.strategies || []).length > 0
-    );
+    // Hiệu suất mua chỉ được tính từ tín hiệu mua thực sự, không trộn HOLD/SELL.
+    const eligibleResults = results.filter(result => result.signal === 'BUY' || result.signal === 'STRONG_BUY');
     if (eligibleResults.length === 0) return;
     const db = await openSignalDB();
     const transaction = db.transaction(SIGNAL_STORE, 'readwrite');
@@ -80,16 +79,17 @@ async function getSignalStats() {
         request.onerror = () => reject(request.error);
     });
     db.close();
+    const buyRows = rows.filter(row => row.signal === 'BUY' || row.signal === 'STRONG_BUY');
 
     const strategyCounts = {};
-    rows.forEach(row => (row.strategies || []).forEach(type => {
+    buyRows.forEach(row => (row.strategies || []).forEach(type => {
         strategyCounts[type] = (strategyCounts[type] || 0) + 1;
     }));
-    const latest = rows.reduce((value, row) => !value || row.createdAt > value ? row.createdAt : value, '');
+    const latest = buyRows.reduce((value, row) => !value || row.createdAt > value ? row.createdAt : value, '');
     const horizons = [5, 10, 20];
     const performance = {};
     horizons.forEach(horizon => {
-        const evaluated = rows.filter(row => row.outcomes?.[horizon]);
+        const evaluated = buyRows.filter(row => row.outcomes?.[horizon]);
         const wins = evaluated.filter(row => row.outcomes[horizon].returnPct > 0).length;
         const averageReturn = evaluated.length
             ? evaluated.reduce((sum, row) => sum + row.outcomes[horizon].returnPct, 0) / evaluated.length
@@ -105,7 +105,7 @@ async function getSignalStats() {
     const strategyPerformance = {};
     const strategyLabels = ['MONEY_FLOW', 'LEADER', 'BOTTOM', 'BB_BREAKOUT'];
     strategyLabels.forEach(strategy => {
-        const samples = rows.filter(row => (row.strategies || []).includes(strategy));
+        const samples = buyRows.filter(row => (row.strategies || []).includes(strategy));
         const observations = samples.map(row => row.outcomes?.[20] || row.outcomes?.[10] || row.outcomes?.[5]).filter(Boolean);
         if (!observations.length) return;
         const wins = observations.filter(value => value.returnPct > 0).length;
@@ -115,7 +115,7 @@ async function getSignalStats() {
             averageReturn: observations.reduce((sum, value) => sum + value.returnPct, 0) / observations.length
         };
     });
-    return { total: rows.length, latest, strategyCounts, performance, strategyPerformance };
+    return { total: buyRows.length, latest, strategyCounts, performance, strategyPerformance };
 }
 
 function calculateOutcome(row, candles, horizon) {
@@ -169,7 +169,9 @@ async function refreshSignalOutcomes() {
     db.close();
 
     const today = new Date();
+    const isBuySignal = row => row.signal === 'BUY' || row.signal === 'STRONG_BUY';
     const dueRows = rows.filter(row => {
+        if (!isBuySignal(row)) return false;
         const ageDays = (today - new Date(`${row.sessionDate}T00:00:00`)) / 86400000;
         return (ageDays >= 6 && !row.outcomes?.[5]) || (ageDays >= 13 && !row.outcomes?.[10]) || (ageDays >= 27 && !row.outcomes?.[20]);
     });

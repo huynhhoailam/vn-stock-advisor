@@ -109,7 +109,6 @@ async function loadTopLiquidityHoseSymbols(topLimit = 60, updateProgressFn) {
         if (liquidityList.length > 0) {
             liquidityList.sort((a, b) => b.tradingValue - a.tradingValue);
             const topSymbols = liquidityList.slice(0, topLimit).map(i => i.symbol);
-            console.log(`✅ VPS API: Top ${topLimit} mã thanh khoản HOSE từ ${candidates.length} mã động → ${topSymbols.join(', ')}`);
             if (updateProgressFn) updateProgressFn(40, `Bước 1/2: Hoàn tất! Lọc Top ${topSymbols.length} mã thanh khoản.`);
             return { topSymbols, vpsMap, dataSource: 'VPS realtime' };
         }

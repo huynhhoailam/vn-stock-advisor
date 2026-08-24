@@ -62,4 +62,45 @@ assert(backtestResult.trades.every(trade => Number.isFinite(trade.portfolioRetur
 assert(backtestResult.maxDrawdown >= 0, 'Drawdown không được âm.');
 
 evaluateStock = originalEvaluateStock;
+
+const atrCandles = Array.from({ length: 40 }, (_, index) => ({
+    ...candle(index + 1, 100 + index * 0.15, 1000),
+    high: 102 + index * 0.15,
+    low: 98 + index * 0.15
+}));
+const atr = calculateATR(atrCandles, 14);
+const atrPlan = buildTradePlan(atrCandles, atrCandles.at(-1).close, 'BUY', [{ type: 'LEADER' }]);
+assert(Number.isFinite(atr) && atr > 0, 'ATR phải phản ánh độ biến động dương.');
+assert(atrPlan.stopLoss >= atrCandles.at(-1).close - atr * 2 - 1e-9, 'Dừng lỗ không được rộng hơn giới hạn 2 ATR.');
+
+const originalDetectStrategies = detectStrategies;
+const originalRSI = calculateRSI;
+const originalMACD = calculateMACD;
+const originalVolumeTrend = getVolumeTrend;
+detectStrategies = () => [{ type: 'LEADER' }, { type: 'MONEY_FLOW' }, { type: 'BB_BREAKOUT' }];
+calculateRSI = () => 60;
+calculateMACD = () => ({ macd: 2, signal: 1, hist: 1, prevHist: 0.5, isBullishCross: false });
+getVolumeTrend = () => 160;
+const strongCandles = Array.from({ length: 80 }, (_, index) => candle(index + 1, 100 + index, 1000));
+const flatBenchmark = Array.from({ length: 80 }, (_, index) => candle(index + 1, 100, 1000));
+const bearBlocked = evaluateStock('TEST', strongCandles, null, { type: 'BEAR', adjustment: -8 }, flatBenchmark);
+assert(bearBlocked.signal !== 'STRONG_BUY' && bearBlocked.signal !== 'BUY', 'Thị trường BEAR phải chặn tín hiệu mua theo xu hướng/breakout.');
+assert(bearBlocked.riskFlags.marketBlocked === true, 'Tín hiệu bị thị trường chặn phải có cờ rủi ro.');
+detectStrategies = originalDetectStrategies;
+calculateRSI = originalRSI;
+calculateMACD = originalMACD;
+getVolumeTrend = originalVolumeTrend;
+
+const flatCandles = Array.from({ length: 80 }, (_, index) => candle(index + 1, 100, 1000));
+const unattractive = evaluateStock('FLAT', flatCandles, null, { type: 'NEUTRAL', adjustment: 0 }, flatBenchmark);
+assert(unattractive.score < 48, 'Mẫu đi ngang phải có điểm cơ hội thấp.');
+assert(unattractive.signal !== 'SELL' && unattractive.signal !== 'STRONG_SELL', 'Điểm cơ hội thấp không được tự động biến thành tín hiệu bán.');
+
+const fallingCandles = Array.from({ length: 80 }, (_, index) => {
+    const close = 180 - index;
+    return { ...candle(index + 1, close, index === 79 ? 1600 : 1000), open: close + 0.5, high: close + 1, low: close - 1 };
+});
+const confirmedExit = evaluateStock('WEAK', fallingCandles, null, { type: 'BEAR', adjustment: -8 }, flatBenchmark);
+assert(confirmedExit.exitRisk.score >= 70, 'Xu hướng giảm có nhiều xác nhận phải tạo rủi ro thoát vị thế cao.');
+assert(confirmedExit.signal === 'STRONG_SELL', 'Chỉ tín hiệu suy yếu được xác nhận mới được gắn BÁN MẠNH.');
 console.log('Algorithm tests passed.');

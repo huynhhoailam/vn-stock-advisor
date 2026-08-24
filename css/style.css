@@ -237,11 +237,6 @@ nav > div {
         gap: 0.5rem !important;
     }
 
-.portfolio-live-price,
-.paper-live-price {
-  font-size: 11px !important;
-  letter-spacing: -0.01em;
-}
 }
 
 @media (max-width: 350px) {
@@ -258,12 +253,6 @@ nav > div {
         width: 1.15rem;
         height: 1.15rem;
     }
-
-.portfolio-live-price,
-.paper-live-price {
-  gap: 0.4rem !important;
-  font-size: 10px !important;
-}
 
     #tab-paper > div:first-child > div:first-child,
     #detail-card > div:first-child {

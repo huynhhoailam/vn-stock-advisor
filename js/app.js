@@ -19,6 +19,77 @@ const safeExternalUrl = value => {
     }
 };
 
+function setupSymbolAutocomplete() {
+    const input = document.getElementById('search-symbol');
+    const dropdown = document.getElementById('symbol-suggestions');
+    const wrapper = document.getElementById('symbol-search-wrap');
+    if (!input || !dropdown || !wrapper) return;
+    let matches = [];
+    let activeIndex = -1;
+
+    const getSymbols = () => {
+        const held = new Set((typeof portfolio !== 'undefined' ? portfolio : []).map(item => item.symbol));
+        const scanned = new Set((typeof scannedResults !== 'undefined' ? scannedResults : []).map(item => item.symbol));
+        const symbols = [...new Set([...(typeof ALL_HOSE_SYMBOLS !== 'undefined' ? ALL_HOSE_SYMBOLS : []), ...held, ...scanned])];
+        return symbols.map(symbol => ({ symbol, held: held.has(symbol), scanned: scanned.has(symbol) }));
+    };
+
+    const close = () => {
+        dropdown.classList.add('hidden');
+        dropdown.innerHTML = '';
+        input.setAttribute('aria-expanded', 'false');
+        activeIndex = -1;
+    };
+
+    const select = symbol => {
+        input.value = symbol;
+        close();
+        analyzeSymbol(symbol);
+    };
+
+    const render = () => {
+        const query = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        input.value = query;
+        if (!query) return close();
+        matches = getSymbols()
+            .filter(item => item.symbol.includes(query))
+            .sort((a, b) => Number(b.symbol.startsWith(query)) - Number(a.symbol.startsWith(query)) || Number(b.held) - Number(a.held) || Number(b.scanned) - Number(a.scanned) || a.symbol.localeCompare(b.symbol))
+            .slice(0, 8);
+        activeIndex = -1;
+        if (!matches.length) {
+            dropdown.innerHTML = '<div class="px-3 py-2.5 text-xs text-gray-500">Không tìm thấy mã phù hợp</div>';
+        } else {
+            dropdown.innerHTML = matches.map((item, index) => `<button type="button" role="option" data-index="${index}" class="symbol-suggestion w-full flex justify-between items-center px-3 py-2.5 text-left border-b border-dark-border/50 last:border-0 hover:bg-blue-500/10"><b class="text-white">${item.symbol}</b><span class="text-[9px] ${item.held ? 'text-green-400' : (item.scanned ? 'text-blue-300' : 'text-gray-600')}">${item.held ? 'Trong danh mục' : (item.scanned ? 'Đã quét' : 'HOSE')}</span></button>`).join('');
+        }
+        dropdown.classList.remove('hidden');
+        input.setAttribute('aria-expanded', 'true');
+        dropdown.querySelectorAll('.symbol-suggestion').forEach(button => button.addEventListener('mousedown', event => {
+            event.preventDefault();
+            select(matches[Number(button.dataset.index)].symbol);
+        }));
+    };
+
+    const paintActive = () => dropdown.querySelectorAll('.symbol-suggestion').forEach((button, index) => {
+        button.classList.toggle('bg-blue-500/15', index === activeIndex);
+        button.setAttribute('aria-selected', index === activeIndex ? 'true' : 'false');
+    });
+
+    input.addEventListener('input', render);
+    input.addEventListener('focus', () => { if (input.value) render(); });
+    input.addEventListener('keydown', event => {
+        if (event.key === 'ArrowDown' && matches.length && !dropdown.classList.contains('hidden')) {
+            event.preventDefault(); activeIndex = (activeIndex + 1) % matches.length; paintActive();
+        } else if (event.key === 'ArrowUp' && matches.length && !dropdown.classList.contains('hidden')) {
+            event.preventDefault(); activeIndex = (activeIndex - 1 + matches.length) % matches.length; paintActive();
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            if (!dropdown.classList.contains('hidden') && activeIndex >= 0) select(matches[activeIndex].symbol);
+            else if (input.value) { close(); analyzeSymbol(input.value); }
+        } else if (event.key === 'Escape') close();
+    });
+    document.addEventListener('mousedown', event => { if (!wrapper.contains(event.target)) close(); });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Setup Tab Navigation
     const navItems = document.querySelectorAll('.nav-item');
@@ -51,7 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 2. Load VN-INDEX on start (dùng DEFAULT_HOSE_SYMBOLS làm nền cho scanner)
+    // 2. Tải VN-Index và trạng thái thị trường khi khởi động.
     await loadVNIndex();
 
     // 3. Setup Scanner Button
@@ -127,6 +198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     modalSettings?.addEventListener('click', event => {
         if (event.target === modalSettings) modalSettings.classList.add('hidden');
     });
+    setupSymbolAutocomplete();
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
             modalSettings?.classList.add('hidden');
@@ -414,9 +486,10 @@ function renderScannerResults() {
         });
     }
 
-    // Sắp xếp ưu tiên: STRONG_BUY > BUY > KHÁC, sau đó theo Điểm Chuyên Gia giảm dần
+    // Bộ lọc bán xếp theo rủi ro thoát vị thế; các bộ lọc khác xếp theo cơ hội mua.
     const signalWeight = { 'STRONG_BUY': 4, 'BUY': 3, 'HOLD': 2, 'SELL': 1, 'STRONG_SELL': 0 };
     filtered.sort((a, b) => {
+        if (filter === 'SELL') return (b.exitRisk?.score || 0) - (a.exitRisk?.score || 0);
         const wA = signalWeight[a.signal] || 0;
         const wB = signalWeight[b.signal] || 0;
         if (wA !== wB) return wB - wA;
@@ -436,7 +509,8 @@ function renderScannerResults() {
 
     let html = '';
     filtered.forEach((res, index) => {
-        const strategyBadges = (res.strategies || []).map(s =>
+        const isExitSignal = res.signal === 'SELL' || res.signal === 'STRONG_SELL';
+        const strategyBadges = (!isExitSignal ? (res.strategies || []) : []).map(s =>
             `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${s.badgeClass}">${s.label}</span>`
         ).join(' ');
 
@@ -445,7 +519,7 @@ function renderScannerResults() {
             ? `<span class="bg-amber-500/20 text-amber-400 text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-amber-500/40">#${index + 1} TOP PICK</span>`
             : `<span class="text-xs font-bold text-gray-500 w-4">${index + 1}</span>`;
 
-        const topReason = res.reasons && res.reasons.length > 0 ? res.reasons[0] : '';
+        const topReason = isExitSignal ? (res.exitRisk?.reasons?.[0] || '') : (res.reasons?.[0] || '');
         const plan = res.tradePlan;
 
         html += `
@@ -457,7 +531,7 @@ function renderScannerResults() {
                             <div class="font-bold text-white text-lg flex items-center gap-1.5">
                                 ${res.symbol}
                             </div>
-                            <div class="text-xs text-gray-400 mt-0.5">Điểm: <span class="font-bold ${res.score >= 70 ? 'text-brand-up' : (res.score <= 40 ? 'text-brand-down' : 'text-brand-ref')}">${res.score}/100</span></div>
+                            <div class="text-xs text-gray-400 mt-0.5">${isExitSignal ? 'Rủi ro' : 'Điểm cơ hội'}: <span class="font-bold ${isExitSignal ? 'text-brand-down' : (res.score >= 70 ? 'text-brand-up' : (res.score <= 40 ? 'text-brand-down' : 'text-brand-ref'))}">${isExitSignal ? (res.exitRisk?.score || 0) : res.score}/100</span></div>
                         </div>
                     </div>
                     <div class="text-right">
@@ -475,11 +549,12 @@ function renderScannerResults() {
                 ` : ''}
 
                 ${strategyBadges ? `<div class="flex flex-wrap gap-1.5 mt-2">${strategyBadges}</div>` : ''}
-                ${plan ? `<div class="grid grid-cols-3 gap-2 mt-2 text-[10px] text-center">
+                ${plan && (res.signal === 'BUY' || res.signal === 'STRONG_BUY') ? `<div class="grid grid-cols-3 gap-2 mt-2 text-[10px] text-center">
                     <div class="bg-blue-500/10 rounded p-1.5"><div class="text-gray-500">Vùng vào</div><b class="text-blue-300">${fmtPrice(plan.entryLow)}–${fmtPrice(plan.entryHigh)}</b></div>
                     <div class="bg-red-500/10 rounded p-1.5"><div class="text-gray-500">Dừng lỗ</div><b class="text-red-300">${fmtPrice(plan.stopLoss)}</b></div>
                     <div class="bg-green-500/10 rounded p-1.5"><div class="text-gray-500">Mục tiêu</div><b class="text-green-300">${fmtPrice(plan.target1)}</b></div>
                 </div>` : ''}
+                ${isExitSignal ? `<div class="mt-2 rounded-lg bg-red-500/10 border border-red-500/20 p-2 text-[10px] text-red-200"><b>Cơ sở cảnh báo:</b> ${(res.exitRisk?.reasons || []).join(' · ') || 'Xu hướng suy yếu'}</div>` : ''}
                 ${(res.signal === 'BUY' || res.signal === 'STRONG_BUY') ? `<button onclick="event.stopPropagation(); openPaperOrder('${res.symbol}', 'BUY')" class="mt-2 w-full text-xs font-bold text-blue-300 border border-blue-500/30 bg-blue-500/10 rounded-lg py-2"><i class="fas fa-flask mr-1"></i>Mua thử ${res.symbol}</button>` : ''}
             </div>
         `;
@@ -516,7 +591,10 @@ async function analyzeSymbol(symbol) {
     document.getElementById('detail-price').textContent = fmtPrice(result.price) + ' VNĐ';
     
     const badge = document.getElementById('detail-signal-badge');
-    badge.textContent = result.signalText + ` (${result.score}Đ)`;
+    const isExitSignal = result.signal === 'SELL' || result.signal === 'STRONG_SELL';
+    badge.textContent = isExitSignal
+        ? `${result.signalText} (Rủi ro ${result.exitRisk?.score || 0}/100)`
+        : `${result.signalText} (${result.score}Đ)`;
     badge.className = `px-3 py-1 rounded-full text-xs font-bold ${result.signalClass}`;
 
     // Render Strategy Tags
@@ -530,7 +608,13 @@ async function analyzeSymbol(symbol) {
     }
 
     const plan = result.tradePlan;
-    document.getElementById('detail-trade-plan').innerHTML = plan ? `
+    const isBuySignal = result.signal === 'BUY' || result.signal === 'STRONG_BUY';
+    const tradePlanHtml = isExitSignal ? `
+        <div class="bg-red-500/10 border border-red-500/25 rounded-xl p-3">
+            <div class="flex justify-between items-center"><b class="text-sm text-red-300">Quản trị vị thế</b><span class="text-[10px] text-red-400">RR ${result.exitRisk?.score || 0}/100</span></div>
+            <div class="text-xs text-gray-300 mt-2">${(result.exitRisk?.reasons || []).join(' · ') || 'Xu hướng đang suy yếu.'}</div>
+            <div class="text-[10px] text-gray-500 mt-2">Nếu đang nắm giữ, ưu tiên mức stop đã đặt trong Danh mục; không dùng vùng vào mới khi tín hiệu rủi ro cao.</div>
+        </div>` : isBuySignal && plan ? `
         <div class="bg-[#0B0E14] border border-dark-border rounded-xl p-3">
             <div class="flex justify-between items-center mb-2"><b class="text-sm text-white">Kế hoạch giao dịch tham khảo</b><span class="text-[10px] px-2 py-1 rounded bg-blue-500/15 text-blue-300">${plan.status}</span></div>
             <div class="grid grid-cols-2 gap-2 text-xs">
@@ -540,7 +624,12 @@ async function analyzeSymbol(symbol) {
                 <div><span class="text-gray-500">Mục tiêu 2:</span> <b class="text-green-400">${fmtPrice(plan.target2)}</b></div>
             </div>
             <div class="text-[10px] text-gray-500 mt-2">${plan.note}</div>
+        </div>` : plan ? `
+        <div class="bg-[#0B0E14] border border-dark-border rounded-xl p-3">
+            <div class="flex justify-between items-center"><b class="text-sm text-white">Vùng theo dõi</b><span class="text-[10px] px-2 py-1 rounded bg-gray-500/15 text-gray-300">${result.signalText}</span></div>
+            <div class="text-xs text-gray-400 mt-2">Chưa có hành động mua/bán rõ ràng. Mốc hỗ trợ kỹ thuật tham khảo: <b class="text-red-300">${fmtPrice(plan.stopLoss)}</b>.</div>
         </div>` : '';
+    document.getElementById('detail-trade-plan').innerHTML = tradePlanHtml;
 
     // Fill Indicators
     const indEl = document.getElementById('detail-indicators');
@@ -645,7 +734,7 @@ async function analyzeSymbol(symbol) {
             aiNewsEl.innerHTML = `
                 <div class="bg-[#0B0E14] border border-dark-border rounded-xl p-3 space-y-2.5">
                     <div class="flex justify-between items-center">
-                        <span class="font-bold text-gray-300 text-xs">Tín Hiệu Đánh Giá:</span>
+                        <span class="font-bold text-gray-300 text-xs">Sắc thái dữ liệu:</span>
                         <span class="text-[10px] px-2 py-0.5 rounded-full font-bold border ${safeSentimentClass}">
                             ${escapeHtml(analysis.sentimentText)} (${analysis.sentimentScore > 0 ? '+' : ''}${analysis.sentimentScore})
                         </span>

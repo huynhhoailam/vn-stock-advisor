@@ -48,7 +48,7 @@ function taBasedAnalysis(symbol, taResult) {
     }
 
     const { score, signal, indicators, strategies, reasons } = taResult;
-    const { rsi, macd, sma20, sma50, volPercent, foreignNet } = indicators || {};
+    const { rsi, macd, volPercent, foreignNet } = indicators || {};
 
     // Tính sentiment score từ TA score (0-100 → -20 đến +20)
     const sentimentScore = Math.round((score - 50) * 0.4); // 0→-20, 50→0, 100→+20
