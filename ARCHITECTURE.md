@@ -49,12 +49,13 @@ js/app.js → điều phối tab, scanner, biểu đồ và chi tiết mã
 
 ### IndexedDB
 
-Database `vnStockAdvisorDB`, version hiện tại là `3`:
+Database `vnStockAdvisorDB`, version hiện tại là `4`:
 
 - `signals`, key `id`: tín hiệu mua và outcome.
 - `paperAccounts`, key `id`: tài khoản paper trading.
 - `paperTrades`, key tự tăng: lịch sử lệnh thử.
 - `backtestRuns`, key tự tăng: kết quả backtest đã lưu.
+- `safetyBackups`, key `id`: tối đa năm snapshot cục bộ trước thao tác ghi đè cloud/local.
 
 Khi nâng version phải tạo store/index trong `onupgradeneeded` và giữ khả năng đọc dữ liệu version cũ.
 
@@ -68,7 +69,7 @@ Luồng hiện tại là đồng bộ một chiều có chủ đích:
 4. Sheet `Backup` chứa JSON chia nhỏ thành các cell để khôi phục chính xác.
 5. `SyncMeta` lưu revision, thời điểm, device ID và hash của backup.
 6. Trước khi ghi, ứng dụng so revision cloud với revision thiết bị đã thấy; khi lệch sẽ chặn ghi và yêu cầu chọn dữ liệu.
-7. Khôi phục hoặc cưỡng chế ghi đè luôn tải bản JSON của phía bị thay thế trước.
+7. Khôi phục hoặc cưỡng chế ghi đè luôn lưu phía bị thay thế vào `safetyBackups`; cách này hoạt động ổn định trên iOS hơn tải Blob tự động.
 
 OAuth access token chỉ nằm trong biến JavaScript và mất khi tải lại trang. Client Secret không tồn tại trong ứng dụng.
 
