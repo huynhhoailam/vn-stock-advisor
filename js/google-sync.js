@@ -1,6 +1,6 @@
 // Sao lưu dữ liệu cá nhân lên Google Sheets, không cần backend.
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
-const GOOGLE_SYNC_CLIENT_KEY = 'vnStockGoogleClientId';
+const GOOGLE_OAUTH_CLIENT_ID = '699177608975-f5olqqts088ii1dhv6f5o9anp7bmm1hg.apps.googleusercontent.com';
 const GOOGLE_SYNC_SHEET_KEY = 'vnStockGoogleSpreadsheetId';
 let googleAccessToken = '';
 let googleTokenClient = null;
@@ -33,13 +33,10 @@ function loadGoogleIdentity() {
 
 async function connectGoogleSheets() {
     if (location.protocol === 'file:') throw new Error('Google OAuth không hoạt động ổn định với file://. Hãy chạy start-server.ps1.');
-    const clientId = document.getElementById('google-client-id')?.value.trim();
-    if (!clientId || !clientId.endsWith('.apps.googleusercontent.com')) throw new Error('OAuth Client ID không hợp lệ.');
-    localStorage.setItem(GOOGLE_SYNC_CLIENT_KEY, clientId);
     await loadGoogleIdentity();
     googleAccessToken = await new Promise((resolve, reject) => {
         googleTokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: clientId,
+            client_id: GOOGLE_OAUTH_CLIENT_ID,
             scope: GOOGLE_SHEETS_SCOPE,
             callback: response => response.error ? reject(new Error(response.error_description || response.error)) : resolve(response.access_token),
             error_callback: error => reject(new Error(error?.message || 'Google OAuth bị hủy.'))
@@ -125,16 +122,12 @@ function updateGoogleSyncControls() {
     }
     const lastSync = localStorage.getItem('vnStockGoogleLastSync');
     if (lastSync && !googleAccessToken) googleSyncStatus(`Lần sao lưu gần nhất: ${new Date(lastSync).toLocaleString('vi-VN')}.`);
-    const configured = Boolean(localStorage.getItem(GOOGLE_SYNC_CLIENT_KEY));
-    const setup = document.getElementById('google-sync-setup');
-    if (setup) setup.open = !configured;
     const label = document.getElementById('google-connect-label');
     if (label) label.textContent = googleAccessToken ? 'Đã đăng nhập Google' : 'Đăng nhập với Google';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const clientInput = document.getElementById('google-client-id');
-    if (clientInput) clientInput.value = localStorage.getItem(GOOGLE_SYNC_CLIENT_KEY) || '';
+    localStorage.removeItem('vnStockGoogleClientId');
     updateGoogleSyncControls();
     document.getElementById('btn-google-connect')?.addEventListener('click', () => connectGoogleSheets().catch(error => googleSyncStatus(error.message, 'error')));
     document.getElementById('btn-google-sync')?.addEventListener('click', () => syncToGoogleSheets().catch(error => googleSyncStatus(error.message, 'error')));

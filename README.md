@@ -30,6 +30,6 @@ Backtest và điểm kỹ thuật là công cụ nghiên cứu, không phải ca
 1. Tạo project trên Google Cloud Console và bật **Google Sheets API**.
 2. Cấu hình OAuth consent screen, sau đó tạo **OAuth Client ID → Web application**.
 3. Thêm `http://127.0.0.1:8765` vào **Authorized JavaScript origins**.
-4. Chạy ứng dụng bằng `start-server.ps1`, mở **Thiết lập Google lần đầu**, nhập Client ID một lần rồi bấm **Đăng nhập với Google**.
+4. Client ID đã được cấu hình trong ứng dụng; mở phần cấu hình rồi bấm **Đăng nhập với Google**.
 
 Ứng dụng không dùng Client Secret. Access token Google chỉ được giữ trong bộ nhớ của tab và mất khi tải lại trang.
