@@ -1,6 +1,6 @@
 // Lưu lịch sử tín hiệu hoàn toàn trong trình duyệt bằng IndexedDB.
 const SIGNAL_DB_NAME = 'vnStockAdvisorDB';
-const SIGNAL_DB_VERSION = 3;
+const SIGNAL_DB_VERSION = 4;
 const SIGNAL_STORE = 'signals';
 const SIGNAL_FEE_RATE = 0.0015;
 const SIGNAL_SELL_TAX_RATE = 0.001;
@@ -26,6 +26,10 @@ function openSignalDB() {
             if (!db.objectStoreNames.contains('backtestRuns')) {
                 const backtestStore = db.createObjectStore('backtestRuns', { keyPath: 'id', autoIncrement: true });
                 backtestStore.createIndex('createdAt', 'createdAt');
+            }
+            if (!db.objectStoreNames.contains('safetyBackups')) {
+                const safetyStore = db.createObjectStore('safetyBackups', { keyPath: 'id' });
+                safetyStore.createIndex('createdAt', 'createdAt');
             }
         };
         request.onsuccess = () => resolve(request.result);

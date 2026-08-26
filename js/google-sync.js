@@ -205,7 +205,7 @@ async function restoreFromGoogleSheets() {
     if (!confirm('Khôi phục sẽ ghi đè danh mục, đầu tư thử, tín hiệu và backtest trong trình duyệt. Tiếp tục?')) return;
     const remote = await readRemoteMeta(spreadsheetId);
     const backup = await readRemoteBackup(spreadsheetId);
-    await exportLocalData();
+    await saveSafetyBackup('Trước khi khôi phục từ Google Sheets');
     await restoreLocalBackup(backup);
     localStorage.setItem(GOOGLE_SYNC_REVISION_KEY, String(remote.revision));
     localStorage.setItem('vnStockGoogleLastSync', remote.updatedAt || new Date().toISOString());
@@ -229,25 +229,18 @@ function hideGoogleConflict() {
 async function resolveGoogleConflictWithCloud() {
     if (!pendingGoogleConflict) return;
     const { spreadsheetId, remote } = pendingGoogleConflict;
-    await exportLocalData();
+    await saveSafetyBackup(`Dữ liệu local trước khi dùng cloud v${remote.revision}`);
     await restoreLocalBackup(await readRemoteBackup(spreadsheetId));
     localStorage.setItem(GOOGLE_SYNC_REVISION_KEY, String(remote.revision));
     localStorage.setItem('vnStockGoogleLastSync', remote.updatedAt || new Date().toISOString());
     hideGoogleConflict();
-    googleSyncStatus(`Đã dùng dữ liệu cloud phiên bản ${remote.revision}; bản local cũ đã được tải xuống.`, 'ok');
+    googleSyncStatus(`Đã dùng dữ liệu cloud phiên bản ${remote.revision}; bản local cũ đã lưu an toàn trên thiết bị.`, 'ok');
 }
 
 async function resolveGoogleConflictWithLocal() {
     if (!pendingGoogleConflict) return;
     const { spreadsheetId, backup, remote } = pendingGoogleConflict;
-    const cloudBackup = await readRemoteBackup(spreadsheetId);
-    const blob = new Blob([JSON.stringify(cloudBackup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `vn-stock-advisor-cloud-v${remote.revision}-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    await saveSafetyBackup(`Cloud v${remote.revision} trước khi bị ghi đè`, await readRemoteBackup(spreadsheetId));
     await writeGoogleBackup(spreadsheetId, backup, remote.revision);
 }
 
@@ -273,4 +266,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-google-use-cloud')?.addEventListener('click', () => resolveGoogleConflictWithCloud().catch(error => googleSyncStatus(error.message, 'error')));
     document.getElementById('btn-google-use-local')?.addEventListener('click', () => resolveGoogleConflictWithLocal().catch(error => googleSyncStatus(error.message, 'error')));
     document.getElementById('btn-google-conflict-cancel')?.addEventListener('click', hideGoogleConflict);
+    document.getElementById('btn-restore-safety')?.addEventListener('click', () => restoreLatestSafetyBackup().catch(error => googleSyncStatus(error.message, 'error')));
+    getLatestSafetyBackup().then(snapshot => {
+        if (snapshot) document.getElementById('btn-restore-safety')?.classList.remove('hidden');
+    }).catch(() => {});
 });

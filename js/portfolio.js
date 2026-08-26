@@ -56,6 +56,40 @@ async function buildLocalBackup() {
     };
 }
 
+async function saveSafetyBackup(reason, backup = null) {
+    const snapshot = backup || await buildLocalBackup();
+    const db = await openSignalDB();
+    const transaction = db.transaction('safetyBackups', 'readwrite');
+    const store = transaction.objectStore('safetyBackups');
+    const createdAt = new Date().toISOString();
+    store.put({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, createdAt, reason, backup: snapshot });
+    const allRequest = store.getAll();
+    allRequest.onsuccess = () => {
+        const oldRows = (allRequest.result || []).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(5);
+        oldRows.forEach(row => store.delete(row.id));
+    };
+    await new Promise((resolve, reject) => {
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+    document.getElementById('btn-restore-safety')?.classList.remove('hidden');
+    return createdAt;
+}
+
+async function getLatestSafetyBackup() {
+    const rows = await readBackupStore('safetyBackups');
+    return rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+}
+
+async function restoreLatestSafetyBackup() {
+    const snapshot = await getLatestSafetyBackup();
+    if (!snapshot) throw new Error('Chưa có bản an toàn trên thiết bị này.');
+    if (!confirm(`Khôi phục bản an toàn ${new Date(snapshot.createdAt).toLocaleString('vi-VN')} (${snapshot.reason})?`)) return;
+    await restoreLocalBackup(snapshot.backup);
+    alert('Đã khôi phục bản an toàn trên thiết bị.');
+}
+
 async function importLocalData(file) {
     return restoreLocalBackup(JSON.parse(await file.text()));
 }
