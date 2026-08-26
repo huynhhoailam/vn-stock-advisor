@@ -91,26 +91,13 @@ async function restoreLatestSafetyBackup() {
 }
 
 async function importLocalData(file) {
+    if (file.size > BACKUP_MAX_BYTES) throw new Error('File sao lưu vượt quá giới hạn 10 MB.');
     return restoreLocalBackup(JSON.parse(await file.text()));
 }
 
 async function restoreLocalBackup(backup) {
-    if (backup?.app !== 'vn-stock-advisor' || !Array.isArray(backup.portfolio)) {
-        throw new Error('File sao lưu không đúng định dạng.');
-    }
-    const cleanPortfolio = backup.portfolio.map(item => ({
-        symbol: String(item.symbol || '').toUpperCase().trim(),
-        buyPrice: Number(item.buyPrice),
-        volume: Number(item.volume),
-        stopLoss: Number(item.stopLoss) > 0 ? Number(item.stopLoss) : null,
-        initialStopLoss: Number(item.initialStopLoss) > 0 ? Number(item.initialStopLoss) : null,
-        target: Number(item.target) > 0 ? Number(item.target) : null
-    })).filter(item => /^[A-Z0-9]{2,10}$/.test(item.symbol) && item.buyPrice > 0 && item.volume > 0);
-
-    if (cleanPortfolio.length !== backup.portfolio.length) {
-        throw new Error('File chứa mã, giá hoặc số lượng không hợp lệ.');
-    }
-    portfolio = cleanPortfolio;
+    backup = sanitizeBackup(backup);
+    portfolio = backup.portfolio;
     savePortfolio();
     if (backup.schemaVersion >= 2) {
         const db = await openSignalDB();
@@ -332,7 +319,7 @@ async function renderPortfolio() {
                 <div class="flex justify-between items-start gap-3">
                     <div class="min-w-0">
                         <div class="flex items-center gap-2">
-                            <h4 class="font-bold text-white text-lg uppercase cursor-pointer hover:text-brand-primary" onclick="analyzeSymbol('${item.symbol}')">${item.symbol}</h4>
+                            <h4 class="font-bold text-white text-lg uppercase cursor-pointer hover:text-brand-primary" data-analyze-symbol="${item.symbol}">${item.symbol}</h4>
                             ${evalResult ? `<span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold ${portfolioBadgeClass}">${portfolioBadgeText} · ${portfolioBadgeMetric}</span>` : ''}
                         </div>
                         <div class="text-[10px] text-gray-500">${formatNumber(item.volume)} CP</div>
@@ -371,10 +358,10 @@ async function renderPortfolio() {
                 ` : ''}
 
                 <div class="flex justify-between items-center pt-1 text-[11px]">
-                    <button onclick="analyzeSymbol('${item.symbol}')" class="text-brand-primary font-semibold"><i class="fas fa-chart-line mr-1"></i>Biểu đồ</button>
+                    <button data-analyze-symbol="${item.symbol}" class="text-brand-primary font-semibold"><i class="fas fa-chart-line mr-1"></i>Biểu đồ</button>
                     <div class="flex gap-4">
-                        <button onclick="openEditModal(${idx})" class="text-gray-400 hover:text-amber-400"><i class="fas fa-edit mr-1"></i>Sửa</button>
-                        <button onclick="removeStockFromPortfolio('${item.symbol}')" class="text-gray-400 hover:text-red-400"><i class="fas fa-trash mr-1"></i>Xóa</button>
+                        <button data-edit-portfolio="${idx}" class="text-gray-400 hover:text-amber-400"><i class="fas fa-edit mr-1"></i>Sửa</button>
+                        <button data-remove-symbol="${item.symbol}" class="text-gray-400 hover:text-red-400"><i class="fas fa-trash mr-1"></i>Xóa</button>
                     </div>
                 </div>
             </div>

@@ -3,37 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com data:; img-src 'self' data: https:; connect-src 'self' https://bgapidatafeed.vps.com.vn https://dchart-api.vndirect.com.vn https://finfo-api.vndirect.com.vn https://generativelanguage.googleapis.com https://sheets.googleapis.com https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; upgrade-insecure-requests">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>VN Stock Advisor</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        dark: {
-                            bg: '#0B0E14',
-                            card: '#151924',
-                            border: '#2A2E39',
-                            text: '#D1D5DB'
-                        },
-                        brand: {
-                            up: '#00C853',
-                            down: '#FF3D00',
-                            ref: '#FFC107',
-                            primary: '#2962FF'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    <script src="js/tailwind-config.js?v=20260826-security1"></script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css?v=20260825-badges1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-dark-bg text-dark-text font-sans antialiased pb-20">
 
@@ -370,7 +350,7 @@
                 <div class="text-[11px] font-bold text-gray-300 mb-1">📋 Cách lấy API Key miễn phí:</div>
                 <div class="flex items-start gap-2 text-[11px] text-gray-400">
                     <span class="bg-brand-primary text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 text-[9px] font-bold mt-0.5">1</span>
-                    <span>Truy cập <a href="https://aistudio.google.com/api-keys" target="_blank" class="text-brand-primary underline font-semibold">aistudio.google.com/api-keys</a> (đăng nhập Google)</span>
+                    <span>Truy cập <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer" class="text-brand-primary underline font-semibold">aistudio.google.com/api-keys</a> (đăng nhập Google)</span>
                 </div>
                 <div class="flex items-start gap-2 text-[11px] text-gray-400">
                     <span class="bg-brand-primary text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 text-[9px] font-bold mt-0.5">2</span>
@@ -445,6 +425,7 @@
         </div>
     </div>
 
+    <script src="js/security.js?v=20260826-security1"></script>
     <script src="js/data.js?v=20260825-badges1"></script>
     <script src="js/ta.js?v=20260825-badges1"></script>
     <script src="js/signal-store.js?v=20260825-badges1"></script>

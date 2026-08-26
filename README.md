@@ -34,3 +34,10 @@ Backtest và điểm kỹ thuật là công cụ nghiên cứu, không phải ca
 
 Ứng dụng không dùng Client Secret. Access token Google chỉ được giữ trong bộ nhớ của tab và mất khi tải lại trang.
 Khi nhiều thiết bị cùng dùng tài khoản Google, ứng dụng tìm lại một Sheet chung và dùng `SyncMeta` để chặn ghi đè nếu phát hiện revision mới từ thiết bị khác.
+
+## Bảo mật dữ liệu
+
+- File và bản sao Google được giới hạn 10 MB, kiểm tra schema và làm sạch toàn bộ bản ghi trước khi ghi vào trình duyệt.
+- Content Security Policy chặn script nội tuyến, object nhúng và các kết nối ngoài danh sách API cần thiết.
+- OAuth chỉ xin quyền `drive.file`: ứng dụng chỉ truy cập các file do chính ứng dụng tạo hoặc người dùng cấp quyền, còn nội dung vẫn đọc/ghi bằng Google Sheets API.
+- Không lưu Gemini API key hoặc Google access token lâu dài. Không nên nhập dữ liệu nhạy cảm vào ghi chú hay bản sao lưu.

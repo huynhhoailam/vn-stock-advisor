@@ -264,6 +264,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+// Event delegation thay cho inline onclick để CSP có thể chặn script nội tuyến.
+document.addEventListener('click', event => {
+    const paperButton = event.target.closest?.('[data-paper-symbol]');
+    if (paperButton) {
+        event.stopPropagation();
+        const symbol = String(paperButton.dataset.paperSymbol || '').toUpperCase();
+        if (SAFE_SYMBOL_PATTERN.test(symbol)) openPaperOrder(symbol, paperButton.dataset.paperSide === 'SELL' ? 'SELL' : 'BUY');
+        return;
+    }
+    const editButton = event.target.closest?.('[data-edit-portfolio]');
+    if (editButton) {
+        const index = Number(editButton.dataset.editPortfolio);
+        if (Number.isInteger(index) && index >= 0 && index < portfolio.length) openEditModal(index);
+        return;
+    }
+    const removeButton = event.target.closest?.('[data-remove-symbol]');
+    if (removeButton) {
+        const symbol = String(removeButton.dataset.removeSymbol || '').toUpperCase();
+        if (SAFE_SYMBOL_PATTERN.test(symbol)) removeStockFromPortfolio(symbol);
+        return;
+    }
+    const analyzeTarget = event.target.closest?.('[data-analyze-symbol]');
+    if (analyzeTarget) {
+        const symbol = String(analyzeTarget.dataset.analyzeSymbol || '').toUpperCase();
+        if (SAFE_SYMBOL_PATTERN.test(symbol)) analyzeSymbol(symbol);
+    }
+});
+
 
 // Load VN-INDEX
 async function loadVNIndex() {
@@ -372,7 +400,7 @@ async function loadOverviewTopMarket(type = 'val') {
         const volFormatted = (item.lot * 100 / 1000000).toFixed(2) + ' tr CP';
 
         html += `
-            <div class="bg-[#0B0E14] border border-dark-border/80 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:border-brand-primary transition-colors" onclick="analyzeSymbol('${item.symbol}')">
+            <div class="bg-[#0B0E14] border border-dark-border/80 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:border-brand-primary transition-colors" data-analyze-symbol="${item.symbol}">
                 <div class="flex items-center gap-3">
                     <div class="w-5 text-center text-xs font-bold text-gray-500">${index + 1}</div>
                     <div>
@@ -523,7 +551,7 @@ function renderScannerResults() {
         const plan = res.tradePlan;
 
         html += `
-            <div class="bg-dark-card border border-dark-border rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer hover:border-brand-primary/50" onclick="analyzeSymbol('${res.symbol}')">
+            <div class="bg-dark-card border border-dark-border rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer hover:border-brand-primary/50" data-analyze-symbol="${res.symbol}">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         ${rankBadge}
@@ -555,7 +583,7 @@ function renderScannerResults() {
                     <div class="bg-green-500/10 rounded p-1.5"><div class="text-gray-500">Mục tiêu</div><b class="text-green-300">${fmtPrice(plan.target1)}</b></div>
                 </div>` : ''}
                 ${isExitSignal ? `<div class="mt-2 rounded-lg bg-red-500/10 border border-red-500/20 p-2 text-[10px] text-red-200"><b>Cơ sở cảnh báo:</b> ${(res.exitRisk?.reasons || []).join(' · ') || 'Xu hướng suy yếu'}</div>` : ''}
-                ${(res.signal === 'BUY' || res.signal === 'STRONG_BUY') ? `<button onclick="event.stopPropagation(); openPaperOrder('${res.symbol}', 'BUY')" class="mt-2 w-full text-xs font-bold text-blue-300 border border-blue-500/30 bg-blue-500/10 rounded-lg py-2"><i class="fas fa-flask mr-1"></i>Mua thử ${res.symbol}</button>` : ''}
+                ${(res.signal === 'BUY' || res.signal === 'STRONG_BUY') ? `<button data-paper-symbol="${res.symbol}" data-paper-side="BUY" class="mt-2 w-full text-xs font-bold text-blue-300 border border-blue-500/30 bg-blue-500/10 rounded-lg py-2"><i class="fas fa-flask mr-1"></i>Mua thử ${res.symbol}</button>` : ''}
             </div>
         `;
     });
@@ -698,8 +726,8 @@ async function analyzeSymbol(symbol) {
             // Tin tức section hoặc link tìm kiếm báo
             let newsSection = '';
             const officialSources = `<div class="grid grid-cols-2 gap-2 mt-2">
-                <a href="https://www.hsx.vn/vi/quan-ly-niem-yet/co-phieu" target="_blank" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HOSE · Niêm yết/CBTT</a>
-                <a href="https://www.hnx.vn/vi-vn/co-phieu.html" target="_blank" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HNX · Công bố tin</a>
+                <a href="https://www.hsx.vn/vi/quan-ly-niem-yet/co-phieu" target="_blank" rel="noopener noreferrer" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HOSE · Niêm yết/CBTT</a>
+                <a href="https://www.hnx.vn/vi-vn/co-phieu.html" target="_blank" rel="noopener noreferrer" class="text-center text-[10px] text-blue-300 border border-blue-500/20 rounded-lg py-1.5">HNX · Công bố tin</a>
             </div>`;
             if (newsList.length > 0) {
                 const newsItems = newsList.slice(0, 3).map(n => `
@@ -714,11 +742,11 @@ async function analyzeSymbol(symbol) {
             } else {
                 newsSection = `
                     <div class="flex gap-2">
-                        <a href="https://cafef.vn/tim-kiem.chn?keywords=${symbol}" target="_blank" 
+                        <a href="https://cafef.vn/tim-kiem.chn?keywords=${symbol}" target="_blank" rel="noopener noreferrer"
                             class="flex-1 text-center text-[11px] text-brand-primary border border-brand-primary/30 bg-brand-primary/5 rounded-lg py-1.5 hover:bg-brand-primary/10 transition-colors">
                             <i class="fas fa-search mr-1"></i>Tìm tin trên CafeF
                         </a>
-                        <a href="https://vndirect.com.vn/catalog/cp/cp-${symbol.toLowerCase()}.shtml" target="_blank"
+                        <a href="https://vndirect.com.vn/catalog/cp/cp-${symbol.toLowerCase()}.shtml" target="_blank" rel="noopener noreferrer"
                             class="flex-1 text-center text-[11px] text-purple-400 border border-purple-500/30 bg-purple-500/5 rounded-lg py-1.5 hover:bg-purple-500/10 transition-colors">
                             <i class="fas fa-chart-bar mr-1"></i>Hồ sơ VNDirect
                         </a>

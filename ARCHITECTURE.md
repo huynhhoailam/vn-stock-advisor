@@ -73,6 +73,13 @@ Luồng hiện tại là đồng bộ một chiều có chủ đích:
 
 OAuth access token chỉ nằm trong biến JavaScript và mất khi tải lại trang. Client Secret không tồn tại trong ứng dụng.
 
+## Ranh giới bảo mật
+
+- `js/security.js` là cổng kiểm tra mọi backup từ file hoặc Google Sheets: giới hạn kích thước/số dòng, whitelist mã và enum, chuẩn hóa số/ngày, loại khóa gây prototype pollution.
+- HTML động không được dùng handler nội tuyến; sự kiện được điều phối bằng `data-*` trong `js/app.js` để tương thích Content Security Policy.
+- CSP chỉ cho phép các API thị trường, Gemini và Google cần thiết. Link mở tab mới phải có `rel="noopener noreferrer"`.
+- Scope OAuth là `drive.file`, không phải quyền đọc toàn bộ Drive hay toàn bộ Sheets của tài khoản.
+
 ## Nguyên tắc mở rộng
 
 - Thêm dữ liệu mới vào `buildLocalBackup()` và `restoreLocalBackup()` cùng lúc.

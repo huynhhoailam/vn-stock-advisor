@@ -184,7 +184,7 @@ document.getElementById('btn-run-backtest')?.addEventListener('click', async () 
         await new Promise(resolve => setTimeout(resolve, 20));
         renderBacktestResult(symbol, runWalkForwardBacktest(symbol, candles, benchmark, strategyFilter));
     } catch (error) {
-        document.getElementById('backtest-results').innerHTML = `<div class="text-red-400">${error.message}</div>`;
+        document.getElementById('backtest-results').innerHTML = `<div class="text-red-400">${escapeHtmlSafe(error.message)}</div>`;
     } finally {
         button.disabled = false;
         button.innerHTML = '<i class="fas fa-play mr-1"></i> Kiểm tra hiệu quả';
@@ -284,7 +284,7 @@ document.getElementById('btn-run-batch-backtest')?.addEventListener('click', asy
         renderBatchBacktest(summary);
         await paperDbAction(['backtestRuns'], 'readwrite', transaction => transaction.objectStore('backtestRuns').add({ createdAt: new Date().toISOString(), days, strategyFilter, symbols, summary }));
     } catch (error) {
-        output.innerHTML = `<div class="text-red-400">${error.message}</div>`;
+        output.innerHTML = `<div class="text-red-400">${escapeHtmlSafe(error.message)}</div>`;
     } finally {
         button.disabled = false;
         button.textContent = 'Kiểm tra danh sách';

@@ -1,5 +1,5 @@
 // Sao lưu dữ liệu cá nhân lên Google Sheets, không cần backend.
-const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
+const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GOOGLE_OAUTH_CLIENT_ID = '699177608975-f5olqqts088ii1dhv6f5o9anp7bmm1hg.apps.googleusercontent.com';
 const GOOGLE_SYNC_SHEET_KEY = 'vnStockGoogleSpreadsheetId';
 const GOOGLE_SYNC_REVISION_KEY = 'vnStockGoogleRevision';
@@ -165,9 +165,8 @@ async function readRemoteBackup(spreadsheetId) {
     const result = await googleApi(`spreadsheets/${spreadsheetId}/values/Backup!A2:B`);
     const json = (result.values || []).sort((a, b) => Number(a[0]) - Number(b[0])).map(row => row[1] || '').join('');
     if (!json) throw new Error('Sheet Backup không có dữ liệu.');
-    const backup = JSON.parse(json);
-    if (backup?.app !== 'vn-stock-advisor') throw new Error('Backup trên Google Sheets không đúng định dạng.');
-    return backup;
+    if (new Blob([json]).size > BACKUP_MAX_BYTES) throw new Error('Backup trên Google Sheets vượt quá giới hạn 10 MB.');
+    return sanitizeBackup(JSON.parse(json));
 }
 
 async function writeGoogleBackup(spreadsheetId, backup, baseRevision) {
