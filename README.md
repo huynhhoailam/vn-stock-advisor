@@ -27,9 +27,10 @@ Backtest và điểm kỹ thuật là công cụ nghiên cứu, không phải ca
 
 ## Cấu hình Google Sheets
 
-1. Tạo project trên Google Cloud Console và bật **Google Sheets API**.
+1. Tạo project trên Google Cloud Console và bật **Google Sheets API** cùng **Google Drive API**.
 2. Cấu hình OAuth consent screen, sau đó tạo **OAuth Client ID → Web application**.
 3. Thêm `http://127.0.0.1:8765` vào **Authorized JavaScript origins**.
 4. Client ID đã được cấu hình trong ứng dụng; mở phần cấu hình rồi bấm **Đăng nhập với Google**.
 
 Ứng dụng không dùng Client Secret. Access token Google chỉ được giữ trong bộ nhớ của tab và mất khi tải lại trang.
+Khi nhiều thiết bị cùng dùng tài khoản Google, ứng dụng tìm lại một Sheet chung và dùng `SyncMeta` để chặn ghi đè nếu phát hiện revision mới từ thiết bị khác.

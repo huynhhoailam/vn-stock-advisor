@@ -404,9 +404,10 @@
             <div class="mt-5 pt-4 border-t border-dark-border space-y-3">
                 <div class="flex items-center justify-between"><div><h4 class="text-sm font-bold text-white"><i class="fab fa-google-drive text-green-400 mr-1"></i> Sao lưu Google Sheets</h4><p class="text-[10px] text-gray-500">Đồng bộ một chiều và khôi phục thủ công</p></div><a id="google-sheet-link" class="hidden text-[10px] text-blue-300 underline" target="_blank" rel="noopener">Mở Sheet</a></div>
                 <div id="google-sync-status" class="text-[11px] text-gray-400">Chưa kết nối.</div>
+                <div id="google-sync-conflict" class="hidden rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 space-y-2"><b class="block text-xs text-amber-300">Có thay đổi từ thiết bị khác</b><p id="google-conflict-detail" class="text-[10px] text-gray-300"></p><p class="text-[9px] text-gray-500">Ứng dụng sẽ tự tải bản JSON dự phòng trước khi ghi đè.</p><div class="grid grid-cols-2 gap-1.5"><button id="btn-google-use-cloud" class="py-1.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-semibold">Dùng cloud</button><button id="btn-google-use-local" class="py-1.5 rounded bg-red-500/15 text-red-300 text-[10px] font-semibold">Ghi đè cloud</button></div><button id="btn-google-conflict-cancel" class="w-full py-1 text-[10px] text-gray-400">Để sau</button></div>
                 <button id="btn-google-connect" class="w-full py-2.5 rounded-lg bg-white text-gray-800 text-xs font-bold flex items-center justify-center gap-2"><i class="fab fa-google text-base"></i><span id="google-connect-label">Đăng nhập với Google</span></button>
                 <div class="grid grid-cols-2 gap-2"><button id="btn-google-sync" class="py-2 rounded-lg bg-blue-500/20 text-blue-300 text-[11px] font-semibold">Sao lưu ngay</button><button id="btn-google-restore" class="py-2 rounded-lg bg-amber-500/15 text-amber-300 text-[11px] font-semibold">Khôi phục</button></div>
-                <p class="text-[9px] text-gray-500">Google chỉ yêu cầu quyền tạo và cập nhật bảng tính sao lưu của ứng dụng.</p>
+                <p class="text-[9px] text-gray-500">Dùng một Sheet chung trên các thiết bị; cần bật Google Sheets API và Google Drive API.</p>
             </div>
         </div>
     </div>
@@ -448,7 +449,7 @@
     <script src="js/signal-store.js?v=20260825-badges1"></script>
     <script src="js/ai-news.js?v=20260825-badges1"></script>
     <script src="js/portfolio.js?v=20260825-badges1"></script>
-    <script src="js/google-sync.js?v=20260826-sheets1"></script>
+    <script src="js/google-sync.js?v=20260826-sheets2"></script>
     <script src="js/paper-trading.js?v=20260825-badges1"></script>
     <script src="js/backtest.js?v=20260825-badges1"></script>
     <script src="js/app.js?v=20260825-badges1"></script>
