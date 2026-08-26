@@ -25,22 +25,7 @@ async function readBackupStore(storeName) {
 }
 
 async function exportLocalData() {
-    const [signals, paperAccounts, paperTrades, backtestRuns] = await Promise.all([
-        readBackupStore('signals'),
-        readBackupStore('paperAccounts'),
-        readBackupStore('paperTrades'),
-        readBackupStore('backtestRuns')
-    ]);
-    const backup = {
-        app: 'vn-stock-advisor',
-        schemaVersion: 3,
-        exportedAt: new Date().toISOString(),
-        portfolio,
-        signals,
-        paperAccounts,
-        paperTrades,
-        backtestRuns
-    };
+    const backup = await buildLocalBackup();
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -52,8 +37,30 @@ async function exportLocalData() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function buildLocalBackup() {
+    const [signals, paperAccounts, paperTrades, backtestRuns] = await Promise.all([
+        readBackupStore('signals'),
+        readBackupStore('paperAccounts'),
+        readBackupStore('paperTrades'),
+        readBackupStore('backtestRuns')
+    ]);
+    return {
+        app: 'vn-stock-advisor',
+        schemaVersion: 3,
+        exportedAt: new Date().toISOString(),
+        portfolio,
+        signals,
+        paperAccounts,
+        paperTrades,
+        backtestRuns
+    };
+}
+
 async function importLocalData(file) {
-    const backup = JSON.parse(await file.text());
+    return restoreLocalBackup(JSON.parse(await file.text()));
+}
+
+async function restoreLocalBackup(backup) {
     if (backup?.app !== 'vn-stock-advisor' || !Array.isArray(backup.portfolio)) {
         throw new Error('File sao lưu không đúng định dạng.');
     }
@@ -90,6 +97,7 @@ async function importLocalData(file) {
     }
     await renderPortfolio();
     if (typeof renderSignalHistoryStats === 'function') await renderSignalHistoryStats();
+    if (typeof renderPaperTrading === 'function') await renderPaperTrading();
 }
 
 function addStockToPortfolio(symbol, buyPrice, volume, stopLoss = null, target = null) {
@@ -156,6 +164,11 @@ async function renderPortfolio() {
         fetchStockHistory(item.symbol, 60).catch(() => null)
     ));
     if (requestId !== portfolioRenderRequestId) return;
+    const estimatedPortfolioValue = portfolio.reduce((sum, item, index) => {
+        const candles = portfolioHistories[index];
+        const price = candles?.length ? candles[candles.length - 1].close * 1000 : item.buyPrice;
+        return sum + price * item.volume;
+    }, 0);
 
     for (let idx = 0; idx < portfolio.length; idx++) {
         const item = portfolio[idx];
@@ -215,11 +228,30 @@ async function renderPortfolio() {
             portfolioPlanChanged = true;
         }
         const isExitSignal = evalResult?.signal === 'SELL' || evalResult?.signal === 'STRONG_SELL';
-        const portfolioBadgeText = stopBreached ? 'VI PHẠM STOP' : evalResult?.signalText;
-        const portfolioBadgeClass = stopBreached ? 'bg-signal-sell' : evalResult?.signalClass;
-        const portfolioBadgeMetric = stopBreached
-            ? 'ƯU TIÊN XỬ LÝ'
-            : (isExitSignal ? `RR ${evalResult.exitRisk?.score || 0}` : `${evalResult?.score || 0}Đ`);
+        const isBuySignal = evalResult?.signal === 'BUY' || evalResult?.signal === 'STRONG_BUY';
+        const inEntryZone = Boolean(evalResult?.tradePlan && currentPrice >= evalResult.tradePlan.entryLow * 1000 && currentPrice <= evalResult.tradePlan.entryHigh * 1000);
+        const positionWeight = estimatedPortfolioValue ? currentVal / estimatedPortfolioValue * 100 : 0;
+        const canAddPosition = isBuySignal && inEntryZone && positionWeight < 25 && !evalResult?.riskFlags?.marketBlocked;
+        let portfolioBadgeText = 'THEO DÕI';
+        let portfolioBadgeClass = 'bg-signal-hold';
+        let portfolioBadgeMetric = evalResult ? `${evalResult.score}Đ` : '';
+        if (stopBreached || evalResult?.signal === 'STRONG_SELL') {
+            portfolioBadgeText = 'ƯU TIÊN BÁN';
+            portfolioBadgeClass = 'bg-signal-sell';
+            portfolioBadgeMetric = stopBreached ? 'THỦNG STOP' : `RR ${evalResult.exitRisk?.score || 0}`;
+        } else if (evalResult?.signal === 'SELL') {
+            portfolioBadgeText = 'CÂN NHẮC BÁN';
+            portfolioBadgeClass = 'bg-signal-sell';
+            portfolioBadgeMetric = `RR ${evalResult.exitRisk?.score || 0}`;
+        } else if (canAddPosition) {
+            portfolioBadgeText = 'CÂN NHẮC MUA THÊM';
+            portfolioBadgeClass = 'bg-signal-buy';
+        } else if (isBuySignal) {
+            portfolioBadgeText = 'TIẾP TỤC GIỮ';
+            portfolioBadgeClass = 'bg-signal-buy';
+        } else if (evalResult?.signalText === 'TRUNG TÍNH') {
+            portfolioBadgeText = 'TIẾP TỤC GIỮ';
+        }
 
         // 🧠 TẠO GỢI Ý THÔNG MINH CHO TỪNG MÃ (SMART ADVISOR ADVICE)
         let adviceTag = '';
@@ -242,13 +274,16 @@ async function renderPortfolio() {
                 adviceTag = '⚠️ RỦI RO THOÁT VỊ THẾ';
                 adviceClass = 'bg-red-500/20 text-red-400 border-red-500/40';
                 adviceText = `Đang lỗ <b>${plPercent.toFixed(1)}%</b>, điểm rủi ro thoát vị thế <b>${evalResult.exitRisk?.score || 0}/100</b>. Theo dõi stop và cân nhắc hạ tỷ trọng nếu xu hướng tiếp tục xấu.`;
-            } else if (signal === 'STRONG_BUY' || signal === 'BUY') {
-                adviceTag = '📈 TÍN HIỆU CÒN TÍCH CỰC';
+            } else if (canAddPosition) {
+                adviceTag = '➕ CÂN NHẮC MUA THÊM';
                 adviceClass = 'bg-blue-500/20 text-blue-400 border-blue-500/40';
-                const inEntryZone = currentPrice >= evalResult.tradePlan.entryLow * 1000 && currentPrice <= evalResult.tradePlan.entryHigh * 1000;
-                adviceText = `Điểm cơ hội <b>${score}/100</b>. ${inEntryZone ? 'Giá đang trong vùng vào tham khảo' : 'Giá hiện không nằm trong vùng vào tham khảo'}; không tự động gia tăng nếu chưa kiểm tra tỷ trọng và tổng rủi ro danh mục.`;
+                adviceText = `Điểm cơ hội <b>${score}/100</b>, giá đang trong vùng vào và tỷ trọng hiện tại khoảng <b>${positionWeight.toFixed(1)}%</b>. Chỉ mua thêm nếu tổng rủi ro danh mục vẫn trong giới hạn.`;
+            } else if (signal === 'STRONG_BUY' || signal === 'BUY') {
+                adviceTag = '✅ TIẾP TỤC GIỮ';
+                adviceClass = 'bg-green-500/20 text-green-400 border-green-500/40';
+                adviceText = `Tín hiệu còn tích cực (${score}/100) nhưng ${!inEntryZone ? 'giá chưa nằm trong vùng mua thêm' : `tỷ trọng đã khoảng ${positionWeight.toFixed(1)}%`}. Chưa nên gia tăng lúc này.`;
             } else {
-                adviceTag = evalResult.signalText === 'CHƯA HẤP DẪN' ? '👀 GIỮ CÓ ĐIỀU KIỆN' : '🔒 CHƯA CẦN HÀNH ĐỘNG';
+                adviceTag = evalResult.signalText === 'CHƯA HẤP DẪN' ? '👀 THEO DÕI SÁT' : '🔒 TIẾP TỤC GIỮ';
                 adviceClass = 'bg-gray-500/20 text-gray-300 border-gray-500/40';
                 adviceText = `${evalResult.signalText === 'CHƯA HẤP DẪN' ? 'Điểm cơ hội hiện thấp, nhưng chưa có đủ xác nhận bán.' : 'Tín hiệu hiện ở trạng thái trung tính/chờ xác nhận.'} Tiếp tục quản trị theo mức dừng lỗ ${suggestedStop ? `<b>${formatNumber(suggestedStop)}</b>` : 'đã đặt'}.`;
             }

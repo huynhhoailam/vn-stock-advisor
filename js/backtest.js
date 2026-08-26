@@ -240,7 +240,7 @@ function aggregateBatchBacktests(items) {
 
 function renderBatchBacktest(summary) {
     const element = document.getElementById('batch-backtest-results');
-    const labels = { MONEY_FLOW: 'Dòng tiền', LEADER: 'Xu hướng', BOTTOM: 'Bắt đáy', BB_BREAKOUT: 'Breakout' };
+    const labels = { MONEY_FLOW: 'Dòng tiền tăng', LEADER: 'Xu hướng mạnh', BOTTOM: 'Hồi phục vùng thấp', BB_BREAKOUT: 'Bứt phá' };
     const strategies = Object.entries(summary.strategyStats).map(([key, value]) => `<div class="flex justify-between py-1 border-t border-dark-border/40"><span>${labels[key] || key} (${value.count})</span><b class="${value.totalReturn >= 0 ? 'text-green-400' : 'text-red-400'}">${(value.wins / value.count * 100).toFixed(0)}% thắng · ${(value.totalReturn / value.count).toFixed(2)}%/lệnh</b></div>`).join('');
     const symbols = [...summary.symbols].sort((a, b) => b.totalReturnPct - a.totalReturnPct).map(item => `<div class="flex justify-between py-1"><span>${item.symbol} · ${item.trades} lệnh</span><b class="${item.totalReturnPct >= 0 ? 'text-green-400' : 'text-red-400'}">${item.totalReturnPct >= 0 ? '+' : ''}${item.totalReturnPct.toFixed(2)}%</b></div>`).join('');
     const exitLabels = { TARGET: 'Mục tiêu', STOP: 'Dừng lỗ', BREAKEVEN: 'Hòa vốn', TIME: 'Hết thời gian' };

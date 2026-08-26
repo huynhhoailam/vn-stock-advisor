@@ -66,10 +66,10 @@ function taBasedAnalysis(symbol, taResult) {
     // Phát hiện catalyst từ chiến lược phát hiện được
     if (strategies && strategies.length > 0) {
         const s = strategies[0];
-        if (s.type === 'MONEY_FLOW') catalyst = "NỔ DÒNG TIỀN / BREAKOUT";
-        else if (s.type === 'LEADER') catalyst = "CỔ PHIẾU DẪN DẮT THỊ TRƯỜNG";
-        else if (s.type === 'BOTTOM') catalyst = "TÍN HIỆU ĐẢO CHIỀU ĐÁY";
-        else if (s.type === 'BB_BREAKOUT') catalyst = "PHÁ VỠ KHÁNG CỰ BOLLINGER";
+        if (s.type === 'MONEY_FLOW') catalyst = "DÒNG TIỀN ĐANG TĂNG";
+        else if (s.type === 'LEADER') catalyst = "XU HƯỚNG ĐANG MẠNH";
+        else if (s.type === 'BOTTOM') catalyst = "HỒI PHỤC TỪ VÙNG GIÁ THẤP";
+        else if (s.type === 'BB_BREAKOUT') catalyst = "GIÁ ĐANG BỨT PHÁ";
     }
 
     // Xây dựng summary thông minh từ indicators

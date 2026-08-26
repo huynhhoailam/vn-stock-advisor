@@ -220,7 +220,7 @@ async function renderSignalHistoryStats() {
             element.textContent = 'Chưa có lịch sử quét. Kết quả đạt tiêu chuẩn sẽ được lưu trên thiết bị này.';
             return;
         }
-        const labels = { MONEY_FLOW: 'Dòng tiền', LEADER: 'Cổ mạnh', BOTTOM: 'Bắt đáy', BB_BREAKOUT: 'Breakout' };
+        const labels = { MONEY_FLOW: 'Dòng tiền tăng', LEADER: 'Xu hướng mạnh', BOTTOM: 'Hồi phục vùng thấp', BB_BREAKOUT: 'Bứt phá' };
         const breakdown = Object.entries(stats.strategyCounts)
             .map(([key, value]) => `${labels[key] || key}: ${value}`)
             .join(' · ');
@@ -246,7 +246,7 @@ function renderStrategyPerformance(stats) {
         const color = item.averageReturn >= 0 ? 'text-green-400' : 'text-red-400';
         return `<div class="bg-[#0B0E14] rounded-lg p-2 text-center"><div class="text-gray-500">Sau ${horizon} phiên (${item.count})</div><b class="${color}">${item.winRate.toFixed(0)}% thắng · ${item.averageReturn >= 0 ? '+' : ''}${item.averageReturn.toFixed(2)}%</b></div>`;
     }).join('');
-    const labels = { MONEY_FLOW: 'Dòng tiền', LEADER: 'Xu hướng', BOTTOM: 'Bắt đáy', BB_BREAKOUT: 'Breakout' };
+    const labels = { MONEY_FLOW: 'Dòng tiền tăng', LEADER: 'Xu hướng mạnh', BOTTOM: 'Hồi phục vùng thấp', BB_BREAKOUT: 'Bứt phá' };
     const strategyHtml = Object.entries(stats.strategyPerformance).map(([key, item]) =>
         `<div class="flex justify-between border-t border-dark-border/50 py-1.5"><span>${labels[key] || key} (${item.count})</span><b class="${item.averageReturn >= 0 ? 'text-green-400' : 'text-red-400'}">${item.winRate.toFixed(0)}% thắng · ${item.averageReturn >= 0 ? '+' : ''}${item.averageReturn.toFixed(2)}%</b></div>`
     ).join('');

@@ -258,7 +258,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
 
         tags.push({
             type: "BOTTOM",
-            label: "🎯 BẮT ĐÁY",
+            label: "HỒI PHỤC VÙNG THẤP",
             badgeClass: "bg-purple-500/20 text-purple-400 border border-purple-500/40",
             desc: descStr
         });
@@ -268,7 +268,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     if (volPercent >= 125 && priceChangePct >= 1.0 && pattern.isStrongClose && macd && macd.macd > macd.signal) {
         tags.push({
             type: "MONEY_FLOW",
-            label: "🚀 NỔ DÒNG TIỀN",
+            label: "DÒNG TIỀN TĂNG",
             badgeClass: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
             desc: `Volume nổ ${volPercent.toFixed(0)}% TB20 + Tăng giá +${priceChangePct.toFixed(1)}%`
         });
@@ -281,7 +281,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     if (isMAAlignment && isNear20DayHigh && macd && macd.macd > macd.signal && rsi >= 52 && rsi <= 74) {
         tags.push({
             type: "LEADER",
-            label: "👑 CỔ MẠNH DẪN DẮT",
+            label: "XU HƯỚNG MẠNH",
             badgeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/40",
             desc: "Đang ở vùng Đỉnh 20 phiên + Kênh tăng vững chắc (Giá > MA20 > MA50)"
         });
@@ -291,7 +291,7 @@ function detectStrategies(candles, currentPrice, sma10, sma20, sma50, rsi, macd,
     if (bb && prevCandle && currentPrice > prevCandle.high && currentPrice >= bb.upper * 0.998 && priceChangePct >= 1.0 && volPercent >= 120 && pattern.isStrongClose) {
         tags.push({
             type: "BB_BREAKOUT",
-            label: "💥 VỠ DẢI TRÊN",
+            label: "ĐANG BỨT PHÁ",
             badgeClass: "bg-blue-500/20 text-blue-400 border border-blue-500/40",
             desc: `Vượt dải trên Bollinger Bands +${priceChangePct.toFixed(1)}% với Volume ${volPercent.toFixed(0)}%`
         });
@@ -497,14 +497,14 @@ function evaluateStock(symbol, candles, vpsInfo = null, marketRegime = null, ben
     const strongBuyQuality = marketSupportsStrongBuy && (leaderQualityConfirmed || hasBottomSetup || breakoutQualityConfirmed);
 
     if (exitRiskScore >= EXIT_RISK_THRESHOLDS.STRONG_SELL && belowSma20 && belowSma50) {
-        signal = "STRONG_SELL"; signalText = "BÁN MẠNH"; signalClass = "bg-signal-sell";
+        signal = "STRONG_SELL"; signalText = "ƯU TIÊN BÁN"; signalClass = "bg-signal-sell";
     } else if (exitRiskScore >= EXIT_RISK_THRESHOLDS.SELL && belowSma20) {
         signal = "SELL"; signalText = "CÂN NHẮC BÁN"; signalClass = "bg-signal-sell";
     } else if (score >= OPPORTUNITY_THRESHOLDS.STRONG_BUY && strongBuyQuality && !isOverextended) {
-        signal = "STRONG_BUY"; signalText = "CƠ HỘI MẠNH"; signalClass = "bg-signal-buy";
+        signal = "STRONG_BUY"; signalText = "CÂN NHẮC MUA"; signalClass = "bg-signal-buy";
     } else if (marketRegime?.type === 'BEAR' && score >= OPPORTUNITY_THRESHOLDS.BUY && strategies.length > 0) {
         signal = hasBottomSetup ? "BUY" : "HOLD";
-        signalText = hasBottomSetup ? "MUA THĂM DÒ" : "CHỜ THỊ TRƯỜNG";
+        signalText = hasBottomSetup ? "THEO DÕI MUA THĂM DÒ" : "CHỜ THỊ TRƯỜNG";
         signalClass = hasBottomSetup ? "bg-signal-buy" : "bg-signal-hold";
     } else if (score >= OPPORTUNITY_THRESHOLDS.BUY && strategies.length > 0 && !isOverextended) {
         signal = "BUY"; signalText = "THEO DÕI MUA"; signalClass = "bg-signal-buy";
