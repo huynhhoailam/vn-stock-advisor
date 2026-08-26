@@ -128,11 +128,20 @@ async function discoverSpreadsheet() {
     return result.files?.[0]?.id || '';
 }
 
+async function tagSpreadsheetForDiscovery(spreadsheetId) {
+    await googleDriveApi(`files/${encodeURIComponent(spreadsheetId)}?fields=id,appProperties`, {
+        method: 'PATCH',
+        body: JSON.stringify({ appProperties: { vnStockAdvisor: 'backup' } })
+    });
+}
+
 async function ensureSpreadsheet() {
     let spreadsheetId = localStorage.getItem(GOOGLE_SYNC_SHEET_KEY);
     if (!spreadsheetId) spreadsheetId = await discoverSpreadsheet();
     if (spreadsheetId) {
         localStorage.setItem(GOOGLE_SYNC_SHEET_KEY, spreadsheetId);
+        // Gắn metadata cả với Sheet được tạo từ phiên bản cũ để thiết bị mới tìm được qua Drive API.
+        await tagSpreadsheetForDiscovery(spreadsheetId);
         await ensureSyncMetaSheet(spreadsheetId);
         return spreadsheetId;
     }
@@ -141,7 +150,7 @@ async function ensureSpreadsheet() {
         body: JSON.stringify({ properties: { title: GOOGLE_SYNC_FILE_NAME }, sheets: ['Portfolio', 'PaperAccount', 'PaperTrades', 'Signals', 'Backtests', 'Backup', 'SyncMeta'].map(title => ({ properties: { title } })) })
     });
     spreadsheetId = created.spreadsheetId;
-    await googleDriveApi(`files/${spreadsheetId}?fields=id`, { method: 'PATCH', body: JSON.stringify({ appProperties: { vnStockAdvisor: 'backup' } }) });
+    await tagSpreadsheetForDiscovery(spreadsheetId);
     localStorage.setItem(GOOGLE_SYNC_SHEET_KEY, spreadsheetId);
     return spreadsheetId;
 }

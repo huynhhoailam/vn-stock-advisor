@@ -63,7 +63,7 @@ Khi nâng version phải tạo store/index trong `onupgradeneeded` và giữ kh�
 Luồng hiện tại là đồng bộ một chiều có chủ đích:
 
 1. Người dùng đăng nhập Google và cấp scope Sheets.
-2. Ứng dụng dùng Drive API (`drive.file`) để tìm lại spreadsheet `VN Stock Advisor Backup` do chính ứng dụng tạo trên thiết bị khác.
+2. Ứng dụng dùng Drive API (`drive.file`) để gắn `appProperties.vnStockAdvisor=backup` và tìm lại spreadsheet `VN Stock Advisor Backup` trên thiết bị khác. Mọi nội dung bảng tính vẫn được đọc/ghi bằng Sheets API.
 3. Các sheet `Portfolio`, `PaperAccount`, `PaperTrades`, `Signals`, `Backtests` phục vụ việc đọc.
 4. Sheet `Backup` chứa JSON chia nhỏ thành các cell để khôi phục chính xác.
 5. `SyncMeta` lưu revision, thời điểm, device ID và hash của backup.
